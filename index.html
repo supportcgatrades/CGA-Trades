@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <title>Capital Growth Alliance - Institutional Asset Management</title>
+    <link rel="icon" type="image/png" href="https://i.imgur.com/nRbbYnS.png" />
+    
+    <!-- Instant Anti-Flash Theme Engine Initialization -->
+    <script>
+      (function() {
+        try {
+          var stored = localStorage.getItem('theme');
+          var isDark = false;
+          if (stored === 'dark') {
+            isDark = true;
+          } else if (stored === 'light') {
+            isDark = false;
+          } else {
+            isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+          }
+          var root = document.documentElement;
+          if (isDark) {
+            root.classList.add('dark');
+            root.classList.remove('light');
+            root.style.colorScheme = 'dark';
+          } else {
+            root.classList.add('light');
+            root.classList.remove('dark');
+            root.style.colorScheme = 'light';
+          }
+        } catch (e) {}
+      })();
+    </script>
+
+    <!-- DNS preconnect & prefetch for speed optimization -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="preconnect" href="https://i.imgur.com" />
+    <link rel="preconnect" href="https://flagcdn.com" />
+    <link rel="dns-prefetch" href="https://fonts.googleapis.com" />
+    <link rel="dns-prefetch" href="https://fonts.gstatic.com" />
+    <link rel="dns-prefetch" href="https://i.imgur.com" />
+    <link rel="dns-prefetch" href="https://flagcdn.com" />
+    <style id="startup-loader-style">
+      html.dark body, html.dark .startup-container {
+        background-color: #050608 !important;
+      }
+      html.light body, html.light .startup-container {
+        background-color: #f8fafc !important;
+      }
+      .startup-container {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        z-index: 99999;
+        user-select: none;
+        overflow: hidden;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      }
+      .ambient-glow-1 {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        width: 380px;
+        height: 380px;
+        background: rgba(0, 158, 66, 0.08);
+        filter: blur(120px);
+        border-radius: 50%;
+        pointer-events: none;
+      }
+      .ambient-glow-2 {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        width: 260px;
+        height: 260px;
+        background: rgba(2, 209, 71, 0.08);
+        filter: blur(100px);
+        border-radius: 50%;
+        pointer-events: none;
+      }
+      .loader-wrapper {
+        position: relative;
+        width: 112px;
+        height: 112px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .dotted-ring {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        animation: spin-dotted 12s linear infinite;
+      }
+      .solid-ring {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        animation: spin-solid 3s linear infinite;
+      }
+      .logo-container {
+        position: absolute;
+        width: 56px;
+        height: 56px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        animation: pulse-logo 2s ease-in-out infinite;
+      }
+      .logo-img {
+        width: 44px;
+        height: 44px;
+        object-fit: contain;
+        filter: brightness(1);
+      }
+      
+      @keyframes spin-dotted {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+      }
+      @keyframes spin-solid {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+      }
+      @keyframes pulse-logo {
+        0%, 100% { opacity: 0.8; transform: scale(0.96); filter: drop-shadow(0 0 5px rgba(0, 158, 66, 0.15)); }
+        50% { opacity: 1; transform: scale(1.04); filter: drop-shadow(0 0 15px rgba(0, 158, 66, 0.3)); }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="startup-loader" class="startup-container">
+      <div class="ambient-glow-1"></div>
+      <div class="ambient-glow-2"></div>
+      <div class="loader-wrapper">
+        <svg class="dotted-ring" viewBox="0 0 100 100">
+          <circle cx="50" cy="50" r="44" fill="none" stroke="#02d147" stroke-width="2" stroke-linecap="round" stroke-dasharray="2 6" stroke-opacity="0.6" />
+        </svg>
+        <svg class="solid-ring" viewBox="0 0 100 100">
+          <circle cx="50" cy="50" r="38" fill="none" stroke="#009e42" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="40 180" stroke-opacity="0.9" />
+        </svg>
+        <div class="logo-container">
+          <img class="logo-img" src="https://i.imgur.com/nRbbYnS.png" alt="Capital Growth Alliance Logo" />
+        </div>
+      </div>
+    </div>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

@@ -1,0 +1,8 @@
+{
+  "name": "Remix CGA Trades 1.0",
+  "description": "An institutional-grade digital asset management platform powered by high-frequency algorithmic neural networks, featuring a premium fintech aesthetic.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

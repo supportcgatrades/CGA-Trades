@@ -1,0 +1,572 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "User profile and balance information.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "name": { "type": "string" },
+        "username": { "type": "string" },
+        "email": { "type": "string" },
+        "phone": { "type": "string" },
+        "country": { "type": "string" },
+        "countryName": { "type": "string" },
+        "country_code": { "type": "string" },
+        "countryCode": { "type": "string" },
+        "country_flag": { "type": "string" },
+        "countryFlag": { "type": "string" },
+        "referral_code": { "type": "string" },
+        "referral_link": { "type": "string" },
+        "referred_by": { "type": "string" },
+        "public_id": { "type": "string" },
+        "role": { "type": "string", "enum": ["user", "cipher"] },
+        "funding_balance": { "type": "number" },
+        "available_balance": { "type": "number" },
+        "total_earnings": { "type": "number" },
+        "total_invested": { "type": "number" },
+        "referral_earnings": { "type": "number" },
+        "suspended": { "type": "boolean" },
+        "banned": { "type": "boolean" },
+        "profile_edited": { "type": "boolean" },
+        "roi_disabled": { "type": "boolean" },
+        "withdrawals_frozen": { "type": "boolean" },
+        "transfers_frozen": { "type": "boolean" },
+        "last_rebook": { "type": "string", "format": "date-time" },
+        "roi_cycle_start": { "type": "string", "format": "date-time" },
+        "created_at": { "type": "string", "format": "date-time" },
+        "twn_balance": { "type": "number" },
+        "points_balance": { "type": "number" },
+        "auto_compound_enabled": { "type": "boolean" },
+        "auto_compound_duration": { "type": "number" },
+        "auto_compound_start_date": { "type": "string", "format": "date-time" },
+        "auto_compound_end_date": { "type": "string", "format": "date-time" },
+        "auto_compound_expired": { "type": "boolean" },
+        "compounded_amounts": { "type": "array" }
+      },
+      "required": ["uid", "name", "username", "email", "funding_balance", "available_balance", "total_earnings", "total_invested"]
+    },
+    "Deposit": {
+      "title": "Deposit Request",
+      "description": "A deposit entry into the system.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "user_id": { "type": "string" },
+        "user_name": { "type": "string" },
+        "amount": { "type": "number" },
+        "method": { "type": "string" },
+        "reference": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "approved", "declined"] },
+        "created_at": { "type": "string", "format": "date-time" },
+        "updated_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "user_id", "amount", "status", "created_at"]
+    },
+    "Withdrawal": {
+      "title": "Withdrawal Request",
+      "description": "A withdrawal entry from the system.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "user_id": { "type": "string" },
+        "user_name": { "type": "string" },
+        "amount": { "type": "number" },
+        "method": { "type": "string" },
+        "details": { "type": "object" },
+        "status": { "type": "string", "enum": ["pending", "approved", "declined"] },
+        "created_at": { "type": "string", "format": "date-time" },
+        "updated_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "user_id", "amount", "status", "created_at"]
+    },
+    "Investment": {
+      "title": "Investment Record",
+      "description": "An investment plan entry.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "user_id": { "type": "string" },
+        "user_name": { "type": "string" },
+        "plan_name": { "type": "string" },
+        "amount": { "type": "number" },
+        "status": { "type": "string", "enum": ["active", "completed", "declined"] },
+        "dailyRoi": { "type": "number" },
+        "created_at": { "type": "string", "format": "date-time" },
+        "updated_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "user_id", "amount", "status", "created_at"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "User notification entries.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "user_id": { "type": "string" },
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "type": { "type": "string", "enum": ["info", "success", "warning", "error"] },
+        "read": { "type": "boolean" },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "user_id", "title", "message", "read", "created_at"]
+    },
+    "SupportTicket": {
+      "title": "Support Ticket",
+      "description": "User support query ticket.",
+      "type": "object",
+      "properties": {
+        "username": { "type": "string" },
+        "userId": { "type": "string" },
+        "publicId": { "type": "string" },
+        "email": { "type": "string" },
+        "message": { "type": "string" },
+        "status": { "type": "string", "enum": ["open", "closed"] },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "email", "message", "status", "created_at"]
+    },
+    "InvestmentPlan": {
+      "title": "Investment Plan",
+      "description": "Dynamic ROI investment plan cards and settings managed by Cipher.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "min": { "type": "number" },
+        "max": { "type": "number" },
+        "roi": { "type": "number" },
+        "minWithdrawal": { "type": "number" },
+        "description": { "type": "string" },
+        "color": { "type": "string" },
+        "accentColor": { "type": "string" },
+        "borderColor": { "type": "string" },
+        "bgColor": { "type": "string" },
+        "buttonColor": { "type": "string" },
+        "gradient": { "type": "string" },
+        "duration": { "type": "number" },
+        "active_status": { "type": "boolean" },
+        "card_background": { "type": "string" },
+        "card_border": { "type": "string" },
+        "accent_color": { "type": "string" },
+        "updated_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "min", "max", "roi", "active_status"]
+    },
+    "SystemSettings": {
+      "title": "System Settings",
+      "description": "Global system configuration.",
+      "type": "object",
+      "properties": {
+        "usd_to_ngn_rate": { "type": "number" },
+        "last_updated": { "type": "string", "format": "date-time" }
+      },
+      "required": ["usd_to_ngn_rate"]
+    },
+    "ReferralClaim": {
+      "title": "Referral Claim",
+      "description": "Records representing a referral cashback or welcome bonus claim.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "user_id": { "type": "string" },
+        "type": { "type": "string", "enum": ["referrer", "referred"] },
+        "amount": { "type": "number" },
+        "partner_uid": { "type": "string" },
+        "partner_name": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "claimed"] },
+        "created_at": { "type": "string", "format": "date-time" },
+        "claimed_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["user_id", "type", "amount", "partner_uid", "partner_name", "status", "created_at"]
+    },
+    "RetirementAccount": {
+      "title": "CGA Retirement Account",
+      "description": "User 401(k)-style retirement account profile and ledger balances.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "fullName": { "type": "string" },
+        "dob": { "type": "string" },
+        "country": { "type": "string" },
+        "address": { "type": "string" },
+        "employmentStatus": { "type": "string" },
+        "employer": { "type": "string" },
+        "goal": { "type": "string" },
+        "targetAge": { "type": "number" },
+        "targetBalance": { "type": "number" },
+        "currentBalance": { "type": "number" },
+        "totalContributions": { "type": "number" },
+        "investmentValue": { "type": "number" },
+        "bonusesEarned": { "type": "number" },
+        "status": { "type": "string", "enum": ["active", "pending_verification", "suspended", "closed"] },
+        "created_at": { "type": "string", "format": "date-time" },
+        "updated_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "fullName", "currentBalance", "totalContributions", "status", "created_at"]
+    },
+    "RetirementInvestment": {
+      "title": "Retirement Investment",
+      "description": "Isolated retirement portfolio allocation.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "user_id": { "type": "string" },
+        "name": { "type": "string" },
+        "strategy": { "type": "string" },
+        "amount": { "type": "number" },
+        "currentValue": { "type": "number" },
+        "investmentDate": { "type": "string", "format": "date-time" },
+        "eligibilityDate": { "type": "string", "format": "date-time" },
+        "bonusRate": { "type": "number" },
+        "bonusAmount": { "type": "number" },
+        "bonusStatus": { "type": "string", "enum": ["pending", "eligible", "credited", "not_eligible"] },
+        "status": { "type": "string", "enum": ["active", "completed", "withdrawn"] },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "user_id", "name", "amount", "bonusRate", "bonusAmount", "bonusStatus", "status", "created_at"]
+    },
+    "RetirementBonus": {
+      "title": "Retirement Bonus Ledger",
+      "description": "Annual 20% CGA retirement bonus records with strict idempotency tracking.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "user_id": { "type": "string" },
+        "investment_id": { "type": "string" },
+        "eligible_principal": { "type": "number" },
+        "bonus_rate": { "type": "number" },
+        "bonus_amount": { "type": "number" },
+        "eligibility_date": { "type": "string", "format": "date-time" },
+        "status": { "type": "string", "enum": ["pending", "eligible", "credited", "not_eligible"] },
+        "credited_date": { "type": "string", "format": "date-time" },
+        "transaction_id": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "user_id", "investment_id", "eligible_principal", "bonus_rate", "bonus_amount", "status", "created_at"]
+    },
+    "RetirementTransaction": {
+      "title": "Retirement Transaction",
+      "description": "Isolated audit transactions for the retirement ledger.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "user_id": { "type": "string" },
+        "account_id": { "type": "string" },
+        "type": { "type": "string", "enum": ["contribution", "investment", "adjustment", "bonus", "withdrawal", "transfer"] },
+        "amount": { "type": "number" },
+        "status": { "type": "string", "enum": ["Pending", "Completed", "Failed", "Reversed"] },
+        "description": { "type": "string" },
+        "previous_balance": { "type": "number" },
+        "new_balance": { "type": "number" },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "user_id", "type", "amount", "status", "created_at"]
+    },
+    "RetirementAuditLog": {
+      "title": "Retirement Audit Trail",
+      "description": "Traceable financial movements for retirement accounts.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "user_id": { "type": "string" },
+        "account_id": { "type": "string" },
+        "transaction_id": { "type": "string" },
+        "action": { "type": "string" },
+        "amount": { "type": "number" },
+        "previous_balance": { "type": "number" },
+        "new_balance": { "type": "number" },
+        "reason": { "type": "string" },
+        "actor": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "user_id", "action", "amount", "timestamp"]
+    },
+    "LoanApplication": {
+      "title": "Loan Application",
+      "description": "Multi-step loan applications submitted by users.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "user_id": { "type": "string" },
+        "user_name": { "type": "string" },
+        "user_email": { "type": "string" },
+        "user_phone": { "type": "string" },
+        "loan_type": { "type": "string" },
+        "requested_amount": { "type": "number" },
+        "requested_term_months": { "type": "number" },
+        "purpose": { "type": "string" },
+        "employment_status": { "type": "string" },
+        "employer": { "type": "string" },
+        "monthly_income": { "type": "number" },
+        "monthly_expenses": { "type": "number" },
+        "residential_status": { "type": "string" },
+        "address": { "type": "string" },
+        "financial_details": { "type": "object" },
+        "status": { 
+          "type": "string", 
+          "enum": ["Draft", "Submitted", "Under Review", "Additional Information Required", "Approved", "Declined", "Offer Available", "Accepted", "Disbursed", "Active", "Paid Off", "Cancelled"] 
+        },
+        "review_notes": { "type": "string" },
+        "approved_amount": { "type": "number" },
+        "approved_term_months": { "type": "number" },
+        "approved_interest_rate": { "type": "number" },
+        "approved_monthly_payment": { "type": "number" },
+        "approved_at": { "type": "string", "format": "date-time" },
+        "approved_by": { "type": "string" },
+        "offer_accepted_at": { "type": "string", "format": "date-time" },
+        "disbursed_at": { "type": "string", "format": "date-time" },
+        "assigned_reviewer": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" },
+        "updated_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "user_id", "loan_type", "requested_amount", "requested_term_months", "purpose", "status", "created_at"]
+    },
+    "Loan": {
+      "title": "Active Loan Record",
+      "description": "Active disbursed loan account and repayment tracking.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "application_id": { "type": "string" },
+        "user_id": { "type": "string" },
+        "user_name": { "type": "string" },
+        "user_email": { "type": "string" },
+        "loan_type": { "type": "string" },
+        "loan_name": { "type": "string" },
+        "original_amount": { "type": "number" },
+        "outstanding_balance": { "type": "number" },
+        "interest_rate": { "type": "number" },
+        "term_months": { "type": "number" },
+        "monthly_payment": { "type": "number" },
+        "start_date": { "type": "string", "format": "date-time" },
+        "next_payment_date": { "type": "string", "format": "date-time" },
+        "maturity_date": { "type": "string", "format": "date-time" },
+        "status": { "type": "string", "enum": ["Active", "Paid Off", "Suspended", "Defaulted"] },
+        "total_paid": { "type": "number" },
+        "remaining_term_months": { "type": "number" },
+        "created_at": { "type": "string", "format": "date-time" },
+        "updated_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "application_id", "user_id", "loan_type", "original_amount", "outstanding_balance", "interest_rate", "term_months", "monthly_payment", "status", "created_at"]
+    },
+    "LoanTransaction": {
+      "title": "Loan Transaction",
+      "description": "Financial transactions related to loan disbursements, payments, and fees.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "loan_id": { "type": "string" },
+        "application_id": { "type": "string" },
+        "user_id": { "type": "string" },
+        "user_name": { "type": "string" },
+        "type": { 
+          "type": "string", 
+          "enum": ["loan_application", "loan_approval", "loan_disbursement", "loan_payment", "principal_payment", "interest_payment", "loan_fee", "loan_adjustment", "loan_payoff"] 
+        },
+        "amount": { "type": "number" },
+        "principal_amount": { "type": "number" },
+        "interest_amount": { "type": "number" },
+        "fee_amount": { "type": "number" },
+        "status": { "type": "string", "enum": ["Completed", "Pending", "Failed"] },
+        "description": { "type": "string" },
+        "payment_method": { "type": "string" },
+        "balance_after": { "type": "number" },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "user_id", "type", "amount", "status", "created_at"]
+    },
+    "LoanAuditLog": {
+      "title": "Loan Audit Log",
+      "description": "Immutable administrative audit trail for loan decisions and operations.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "loan_id": { "type": "string" },
+        "application_id": { "type": "string" },
+        "user_id": { "type": "string" },
+        "action": { "type": "string" },
+        "decision": { "type": "string" },
+        "amount": { "type": "number" },
+        "term_months": { "type": "number" },
+        "interest_rate": { "type": "number" },
+        "reason": { "type": "string" },
+        "actor": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "user_id", "action", "actor", "timestamp"]
+    },
+    "SecuritiesOrder": {
+      "title": "Securities Order",
+      "description": "Buy and sell orders for stocks, bonds, and mutual funds.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "user_id": { "type": "string" },
+        "user_name": { "type": "string" },
+        "user_email": { "type": "string" },
+        "asset_type": { "type": "string", "enum": ["stock", "bond", "mutual_fund"] },
+        "symbol": { "type": "string" },
+        "name": { "type": "string" },
+        "side": { "type": "string", "enum": ["buy", "sell"] },
+        "order_type": { "type": "string", "enum": ["market", "limit", "stop", "stop_limit"] },
+        "quantity": { "type": "number" },
+        "price": { "type": "number" },
+        "limit_price": { "type": "number" },
+        "stop_price": { "type": "number" },
+        "total_amount": { "type": "number" },
+        "fee": { "type": "number" },
+        "status": { "type": "string", "enum": ["pending", "submitted", "partially_filled", "filled", "cancelled", "rejected", "failed"] },
+        "settlement_date": { "type": "string", "format": "date-time" },
+        "execution_price": { "type": "number" },
+        "execution_time": { "type": "string", "format": "date-time" },
+        "notes": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" },
+        "updated_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "user_id", "asset_type", "symbol", "side", "order_type", "quantity", "total_amount", "status", "created_at"]
+    },
+    "SecuritiesHolding": {
+      "title": "Securities Holding",
+      "description": "User position in a specific stock, bond, or mutual fund.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "user_id": { "type": "string" },
+        "asset_type": { "type": "string", "enum": ["stock", "bond", "mutual_fund"] },
+        "symbol": { "type": "string" },
+        "name": { "type": "string" },
+        "quantity": { "type": "number" },
+        "average_price": { "type": "number" },
+        "total_invested": { "type": "number" },
+        "current_price": { "type": "number" },
+        "current_value": { "type": "number" },
+        "unrealized_gain_loss": { "type": "number" },
+        "unrealized_gain_loss_pct": { "type": "number" },
+        "category": { "type": "string" },
+        "updated_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "user_id", "asset_type", "symbol", "quantity", "average_price", "total_invested"]
+    },
+    "SecuritiesWatchlist": {
+      "title": "Securities Watchlist Item",
+      "description": "User saved watchlist item for stocks, bonds, or funds.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "user_id": { "type": "string" },
+        "asset_type": { "type": "string", "enum": ["stock", "bond", "mutual_fund"] },
+        "symbol": { "type": "string" },
+        "name": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "user_id", "asset_type", "symbol", "created_at"]
+    },
+    "SecuritiesAuditLog": {
+      "title": "Securities Audit Log",
+      "description": "Administrative audit trail for securities order execution and status updates.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "order_id": { "type": "string" },
+        "user_id": { "type": "string" },
+        "action": { "type": "string" },
+        "actor": { "type": "string" },
+        "details": { "type": "object" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "action", "actor", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/users/{uid}": {
+      "schema": "User",
+      "description": "User profile records."
+    },
+    "/deposits/{id}": {
+      "schema": "Deposit",
+      "description": "System deposit records."
+    },
+    "/withdrawals/{id}": {
+      "schema": "Withdrawal",
+      "description": "System withdrawal records."
+    },
+    "/investments/{id}": {
+      "schema": "Investment",
+      "description": "User investment records."
+    },
+    "/notifications/{id}": {
+      "schema": "Notification",
+      "description": "User notifications."
+    },
+    "/support_tickets/{id}": {
+      "schema": "SupportTicket",
+      "description": "User support queries."
+    },
+    "/settings/system": {
+      "schema": "SystemSettings",
+      "description": "Global system settings."
+    },
+    "/investment_plans/{id}": {
+      "schema": "InvestmentPlan",
+      "description": "Dynamic ROI investment plan configurations."
+    },
+    "/referral_claims/{id}": {
+      "schema": "ReferralClaim",
+      "description": "Referral bonus and welcome bonus claims."
+    },
+    "/retirement_accounts/{userId}": {
+      "schema": "RetirementAccount",
+      "description": "User retirement accounts."
+    },
+    "/retirement_investments/{id}": {
+      "schema": "RetirementInvestment",
+      "description": "User retirement investments."
+    },
+    "/retirement_bonuses/{id}": {
+      "schema": "RetirementBonus",
+      "description": "User 20% CGA retirement bonus ledger."
+    },
+    "/retirement_transactions/{id}": {
+      "schema": "RetirementTransaction",
+      "description": "User retirement transaction history."
+    },
+    "/retirement_audit_logs/{id}": {
+      "schema": "RetirementAuditLog",
+      "description": "Retirement audit trails."
+    },
+    "/loan_applications/{id}": {
+      "schema": "LoanApplication",
+      "description": "Submitted loan applications."
+    },
+    "/loans/{id}": {
+      "schema": "Loan",
+      "description": "Active and completed loan accounts."
+    },
+    "/loan_transactions/{id}": {
+      "schema": "LoanTransaction",
+      "description": "Financial ledger of loan disbursements and repayments."
+    },
+    "/loan_audit_logs/{id}": {
+      "schema": "LoanAuditLog",
+      "description": "Audit trails for loan actions and reviewer decisions."
+    },
+    "/securities_orders/{id}": {
+      "schema": "SecuritiesOrder",
+      "description": "Securities market, limit, and stop orders."
+    },
+    "/securities_holdings/{id}": {
+      "schema": "SecuritiesHolding",
+      "description": "Securities portfolios and active holdings."
+    },
+    "/securities_watchlist/{id}": {
+      "schema": "SecuritiesWatchlist",
+      "description": "User saved securities watchlist items."
+    },
+    "/securities_audit_logs/{id}": {
+      "schema": "SecuritiesAuditLog",
+      "description": "Securities audit trail and status change events."
+    }
+  }
+}
