@@ -101,7 +101,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const isVerifiedFromState = location.state?.verified === true;
   const isCipher = isCipherAdmin(user) || (auth.currentUser && isCipherAdmin(auth.currentUser)) || profile?.role === 'cipher';
 
-  if (!user?.emailVerified && !isVerifiedFromState && !isCipher) {
+  if (!user?.emailVerified && !auth.currentUser?.emailVerified && !isVerifiedFromState && !isCipher) {
      return <Navigate to="/welcome" replace />;
   }
 

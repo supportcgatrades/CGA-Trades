@@ -24,31 +24,20 @@ const databaseId = import.meta.env.VITE_FIREBASE_DATABASE_ID || firebaseConfigJs
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 
 // Initialize Firestore with robust settings
-// Use experimentalForceLongPolling for best stability in sandboxed proxy iframe environments
+// Use experimentalForceLongPolling and memoryLocalCache to prevent IndexedDB multi-tab lock hangs in sandboxed iframe environments
 let firestoreDb;
 try {
   firestoreDb = initializeFirestore(app, {
     experimentalForceLongPolling: true,
-    localCache: persistentLocalCache({
-      tabManager: persistentMultipleTabManager(),
-    })
+    localCache: memoryLocalCache()
   }, databaseId);
-} catch (e) {
-  console.warn("Firestore persistent local cache failed (possibly blocked in sandbox iframe). Falling back to memory cache.", e);
+} catch (err) {
   try {
     firestoreDb = initializeFirestore(app, {
-      experimentalForceLongPolling: true,
-      localCache: memoryLocalCache()
+      experimentalForceLongPolling: true
     }, databaseId);
-  } catch (err) {
-    // If it is already initialized or has another issue, try basic fallback
-    try {
-      firestoreDb = initializeFirestore(app, {
-        experimentalForceLongPolling: true
-      }, databaseId);
-    } catch (finalErr) {
-      firestoreDb = initializeFirestore(app, {}, databaseId);
-    }
+  } catch (finalErr) {
+    firestoreDb = initializeFirestore(app, {}, databaseId);
   }
 }
 

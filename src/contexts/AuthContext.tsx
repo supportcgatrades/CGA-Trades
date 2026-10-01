@@ -1101,12 +1101,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const fetchProfileWithRetry = useCallback(async (firebaseUser: FirebaseUser, retryCount = 0): Promise<void> => {
-    // Reload user state to ensure we have the absolute latest verification status
-    // This addresses the "verified users unable to sign in" permission issue
-    if (retryCount === 0) {
+    // Reload user state only if unverified on initial attempt
+    if (retryCount === 0 && !firebaseUser.emailVerified) {
       try {
-        await firebaseUser.reload();
-        await firebaseUser.getIdToken(true);
+        await Promise.race([
+          (async () => {
+            await firebaseUser.reload();
+            if (firebaseUser.emailVerified) {
+              await firebaseUser.getIdToken(true);
+            }
+          })(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Auth reload timeout')), 4000))
+        ]);
         const active = auth.currentUser;
         if (active) {
           setUser(Object.assign(Object.create(Object.getPrototypeOf(active)), active));
@@ -1120,13 +1126,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const isCipher = isCipherAdmin(currentCheckUser);
 
     if (!currentCheckUser.emailVerified && !isCipher) {
-        setProfile(null);
-        setLoading(false);
-        return;
+      setProfile(null);
+      setLoading(false);
+      return;
     }
 
     const docRef = doc(db, 'users', currentCheckUser.uid);
     
+    // Ensure loading is never stuck if Firestore is slow
+    const loadingSafetyTimer = setTimeout(() => {
+      setLoading(false);
+    }, 2000);
+
     try {
       // Clear existing subscription
       if (unsubscribeProfileRef.current) {
@@ -1134,16 +1145,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         unsubscribeProfileRef.current = null;
       }
 
-      // Initial getDoc to check existence and prime the cache
-      const initialSnap = await getDoc(docRef);
-      if (initialSnap.exists()) {
-        setProfile(initialSnap.data() as UserProfile);
-      }
-
       const unsubscribe = onSnapshot(docRef, async (docSnap) => {
+        clearTimeout(loadingSafetyTimer);
         if (docSnap.exists()) {
           const profileData = docSnap.data() as UserProfile;
           setProfile(profileData);
+          setLoading(false);
 
           // Safe trigger existing reward balance correction once
           if (!profileData.withdraw_methods?.rewards_migrated_v2) {
@@ -1200,33 +1207,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           }
         } else {
           setProfile(null);
+          setLoading(false);
         }
-        setLoading(false);
       }, (error) => {
-        // If snapshot fails with permission error, retry silently
+        clearTimeout(loadingSafetyTimer);
+        // If snapshot fails with permission error, retry silently without blocking loading
         if (error.message.includes('permission')) {
-          if (retryCount < 5) {
+          if (retryCount < 3) {
             const delay = Math.pow(2, retryCount) * 500;
             setTimeout(() => fetchProfileWithRetry(firebaseUser, retryCount + 1), delay);
           } else {
             console.error("Max retries reached for profile fetch", error);
-            setLoading(false);
           }
         } else {
           console.error("Profile subscription error:", error);
-          setLoading(false);
         }
+        setLoading(false);
       });
 
       unsubscribeProfileRef.current = unsubscribe;
     } catch (err: any) {
-      if (err.message.includes('permission') && retryCount < 5) {
-        const delay = Math.pow(2, retryCount) * 500;
-        setTimeout(() => fetchProfileWithRetry(firebaseUser, retryCount + 1), delay);
-      } else {
-        console.error("Fetch profile error:", err);
-        setLoading(false);
-      }
+      clearTimeout(loadingSafetyTimer);
+      console.error("Fetch profile error:", err);
+      setLoading(false);
     }
   }, [checkAndProcessROI]);
 
@@ -1249,20 +1252,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [user, profile, checkAndProcessROI]);
 
   const syncAuthSession = useCallback(async (signedInUser?: FirebaseUser) => {
-    setLoading(true);
     const targetUser = signedInUser || auth.currentUser;
     if (targetUser) {
-      try {
-        await targetUser.reload();
-        await targetUser.getIdToken(true);
-      } catch (e) {
-        console.warn("Auth reload in syncAuthSession:", e);
+      if (!targetUser.emailVerified) {
+        try {
+          await Promise.race([
+            (async () => {
+              await targetUser.reload();
+              if (targetUser.emailVerified) {
+                await targetUser.getIdToken(true);
+              }
+            })(),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('Auth sync timeout')), 4000))
+          ]);
+        } catch (e) {
+          console.warn("Auth reload in syncAuthSession:", e);
+        }
       }
       const activeUser = auth.currentUser || targetUser;
       setUser(Object.assign(Object.create(Object.getPrototypeOf(activeUser)), activeUser));
       const isCipher = isCipherAdmin(activeUser);
       if (activeUser.emailVerified || isCipher) {
-        await fetchProfileWithRetry(activeUser);
+        setLoading(false);
+        void fetchProfileWithRetry(activeUser);
       } else {
         setProfile(null);
         setLoading(false);
@@ -1281,18 +1293,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const unsubscribeAuth = auth.onAuthStateChanged(async (firebaseUser) => {
       if (firebaseUser) {
-        setLoading(true);
-        try {
-          await firebaseUser.reload();
-        } catch (e) {
-          console.warn("Auth reload in onAuthStateChanged:", e);
+        const creationTimeMs = firebaseUser.metadata?.creationTime
+          ? new Date(firebaseUser.metadata.creationTime).getTime()
+          : 0;
+        const isJustCreated = creationTimeMs > 0 && Math.abs(Date.now() - creationTimeMs) < 15000;
+
+        if (!firebaseUser.emailVerified && !isJustCreated) {
+          try {
+            await Promise.race([
+              firebaseUser.reload(),
+              new Promise((_, reject) => setTimeout(() => reject(new Error('Auth reload timeout')), 4000))
+            ]);
+          } catch (e) {
+            console.warn("Auth reload in onAuthStateChanged:", e);
+          }
         }
+
         const activeUser = auth.currentUser || firebaseUser;
         setUser(Object.assign(Object.create(Object.getPrototypeOf(activeUser)), activeUser));
         
         const isCipher = isCipherAdmin(activeUser);
         if (activeUser.emailVerified || isCipher) {
-          await fetchProfileWithRetry(activeUser);
+          setLoading(false);
+          void fetchProfileWithRetry(activeUser);
         } else {
           setProfile(null);
           setLoading(false);
@@ -1321,6 +1344,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       unsubscribeProfileRef.current();
       unsubscribeProfileRef.current = null;
     }
+    setUser(null);
+    setProfile(null);
+    setLoading(false);
     await auth.signOut();
   }, []);
 

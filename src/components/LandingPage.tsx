@@ -69,6 +69,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import Footer from './Footer';
 import { useLanguage, LANGUAGES } from '../contexts/LanguageContext';
 import { useTheme } from '../contexts/ThemeContext';
+import { useAuth } from '../contexts/AuthContext';
 import { normalizePhoneNumber, getPhoneLookupCandidates, getCountryDialCode, getCountryMaxNationalLength } from '../utils/phone';
 
 // --- HELPERS ---
@@ -84,6 +85,92 @@ const generateReferralCode = () => {
 const generatePublicId = () => {
   return Math.floor(10000000 + Math.random() * 90000000).toString();
 };
+
+const profileCreationInFlight = new Map<string, Promise<void>>();
+
+function withOperationTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutMessage: string): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => {
+      const err: any = new Error(timeoutMessage);
+      err.code = 'auth/network-request-failed';
+      reject(err);
+    }, timeoutMs);
+  });
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    if (timeoutId !== undefined) clearTimeout(timeoutId);
+  });
+}
+
+function getFriendlySignupErrorMessage(error: any): string {
+  const code = error?.code || '';
+  switch (code) {
+    case 'auth/email-already-in-use':
+      return 'An account with this email address already exists. Please sign in or use a different email.';
+    case 'auth/invalid-email':
+      return 'Please enter a valid email address.';
+    case 'auth/weak-password':
+      return 'Password is too weak. Please use at least 6 characters.';
+    case 'auth/network-request-failed':
+      return error?.message && !String(error.message).startsWith('Firebase:')
+        ? error.message
+        : 'Network error while creating your account. Please check your internet connection and try again.';
+    case 'auth/too-many-requests':
+    case 'auth/quota-exceeded':
+      return 'Too many attempts right now. Please wait a moment and try again.';
+    case 'auth/operation-not-allowed':
+      return 'Email/password registration is currently unavailable. Please contact support.';
+    case 'auth/internal-error':
+      return 'A temporary authentication service error occurred. Please try again.';
+    default: {
+      const raw = String(error?.message || '');
+      if (raw && !raw.startsWith('Firebase:')) return raw;
+      return 'Unable to complete signup right now. Please check your details and try again.';
+    }
+  }
+}
+
+function getFriendlyVerificationErrorMessage(error: any): string {
+  const code = error?.code || '';
+  switch (code) {
+    case 'auth/too-many-requests':
+    case 'auth/quota-exceeded':
+      return 'A verification email was recently sent. Please check your inbox or spam folder, or wait a moment before requesting another.';
+    case 'auth/network-request-failed':
+      return 'Unable to send the verification email right now. Please check your connection and try again.';
+    case 'auth/user-token-expired':
+    case 'auth/requires-recent-login':
+      return 'Your session expired. Please sign in to request a new verification email.';
+    case 'auth/invalid-email':
+      return 'The email address provided appears invalid.';
+    case 'auth/operation-not-allowed':
+    case 'auth/internal-error':
+    default:
+      return 'Unable to send the verification email right now. Please try again.';
+  }
+}
+
+function cachePhoneEmailMapping(normalizedPhone: string, cleanEmail: string) {
+  if (!normalizedPhone || !cleanEmail) return;
+  try {
+    const raw = localStorage.getItem('cga_phone_email_cache');
+    const map = raw ? JSON.parse(raw) : {};
+    map[normalizedPhone] = cleanEmail.toLowerCase();
+    localStorage.setItem('cga_phone_email_cache', JSON.stringify(map));
+  } catch (e) {}
+}
+
+function lookupCachedEmailByPhone(candidates: string[]): string | null {
+  try {
+    const raw = localStorage.getItem('cga_phone_email_cache');
+    if (!raw) return null;
+    const map = JSON.parse(raw);
+    for (const c of candidates) {
+      if (map[c]) return map[c];
+    }
+  } catch (e) {}
+  return null;
+}
 
 const Realistic3DIcon = ({ type }: { type: 'user' | 'plan' | 'fund' | 'node' }) => {
   if (type === 'user') {
@@ -220,6 +307,7 @@ const Realistic3DIcon = ({ type }: { type: 'user' | 'plan' | 'fund' | 'node' }) 
 export default function LandingPage() {
   const { language, setLanguage, t } = useLanguage();
   const { theme, effectiveTheme, isDark, setTheme } = useTheme();
+  const { syncAuthSession } = useAuth();
   const [isLanguageOpen, setIsLanguageOpen] = useState(false);
   const [isThemeOpen, setIsThemeOpen] = useState(false);
   const languageRef = React.useRef<HTMLDivElement>(null);
@@ -603,6 +691,24 @@ export default function LandingPage() {
   const [showGoogleConfirmPassword, setShowGoogleConfirmPassword] = useState(false);
 
   const [verificationSent, setVerificationSent] = useState(false);
+  const [verificationError, setVerificationError] = useState<string | null>(null);
+  const [resendingVerification, setResendingVerification] = useState(false);
+  const [resendCooldown, setResendCooldown] = useState(0);
+  const [pendingVerificationUser, setPendingVerificationUser] = useState<FirebaseUser | null>(null);
+  const pendingVerificationUserRef = React.useRef<FirebaseUser | null>(null);
+  const isSubmittingAuthRef = React.useRef(false);
+
+  const startResendCooldown = (seconds = 60) => {
+    setResendCooldown(seconds);
+  };
+
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const timer = setInterval(() => {
+      setResendCooldown((prev) => (prev <= 1 ? 0 : prev - 1));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [resendCooldown]);
   
   // Security States
   const [requiresOtp, setRequiresOtp] = useState(false);
@@ -782,386 +888,92 @@ export default function LandingPage() {
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
-  const handleSignup = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!fullName.trim()) {
-      toast.error("Full name is required.");
-      return;
+  const ensureSignupProfileCreated = async (firebaseUser: FirebaseUser, pendingDataInput?: any): Promise<void> => {
+    const uid = firebaseUser.uid;
+    const existingTask = profileCreationInFlight.get(uid);
+    if (existingTask) {
+      return existingTask;
     }
-    const cleanUsername = username.trim().toLowerCase();
-    if (!cleanUsername) {
-      toast.error("Username is required.");
-      return;
-    }
-    if (username !== cleanUsername) {
-      setUsername(cleanUsername);
-    }
-    if (!email.trim()) {
-      toast.error("Email address is required.");
-      return;
-    }
-    if (!phone || phone.trim().length < 5) {
-      toast.error("Valid phone number is required.");
-      return;
-    }
-    if (password !== confirmPassword) {
-      toast.error("Passwords do not match.");
-      return;
-    }
-    if (password.length < 6) {
-      toast.error("Password must be at least 6 characters.");
-      return;
-    }
-    
-    setLoading(true);
-    try {
-      const countryContext = selectedCountry || {
-        countryName: 'Nigeria',
-        countryCode: 'NG',
-        countryFlag: '🇳🇬'
-      };
 
-      const normalizedPhone = normalizePhoneNumber(phone, countryContext.countryCode);
-      if (!normalizedPhone) {
-        toast.error("Valid phone number is required.");
-        setLoading(false);
-        return;
-      }
-
-      // Check if another account is already registered with this phone number in Firestore
-      const phoneCandidates = getPhoneLookupCandidates(phone, countryContext.countryCode);
-      const existingPhoneSnap = await getDocs(query(collection(db, 'users'), where('phone', 'in', phoneCandidates.slice(0, 30))));
-      if (!existingPhoneSnap.empty) {
-        toast.error("An account with this phone number already exists. Please sign in.");
-        setAuthMode('signin');
-        setSigninPhone(phone);
-        setLoading(false);
-        return;
-      }
-
-      // Validate Referral Code if provided
-      let referrerId: string | null = null;
-      let referrerCodeValue: string | null = null;
-      if (referralCode.trim()) {
-        const cleanRef = referralCode.trim().toUpperCase();
-        const q = query(collection(db, 'users'), where('referral_code', '==', cleanRef));
-        const snap = await getDocs(q);
-        if (snap.empty) {
-          toast.error("The referral code you entered does not exist.");
-          setLoading(false);
-          return;
-        }
-        referrerId = snap.docs[0].id;
-        referrerCodeValue = cleanRef;
-      }
-
-      // 1. Create Auth Account
-      const userCredential = await createUserWithEmailAndPassword(auth, email.trim(), password);
-      const firebaseUser = userCredential.user;
-
-      // 2. Create the Firestore User Profile IMMEDIATELY while user is authenticated!
-      const isCipherUser = firebaseUser.email === 'support@tavariwave.network' || 
-                           firebaseUser.email === 'contact.cga.usa@gmail.com' || 
-                           firebaseUser.uid === '3yV3rfcUzob5v9ltfVcMw0PL6tQ2';
-      const userRefCode = isCipherUser ? 'CIPHER' : generateReferralCode();
-      const newUserProfile = {
-        uid: firebaseUser.uid,
-        name: fullName.trim() || 'Nexus User',
-        username: cleanUsername || 'user',
-        email: email.trim().toLowerCase(),
-        phone: normalizedPhone,
-        country: countryContext.countryName,
-        countryName: countryContext.countryName,
-        country_code: countryContext.countryCode,
-        countryCode: countryContext.countryCode,
-        country_flag: countryContext.countryFlag,
-        countryFlag: countryContext.countryFlag,
-        public_id: generatePublicId(),
-        referral_code: userRefCode,
-        referral_link: `${window.location.origin}/signup?ref=${userRefCode}`,
-        referred_by: referrerId,
-        referrer_uid: referrerId,
-        referrer_code: referrerCodeValue,
-        referrals_count: 0,
-        active_referrals: 0,
-        referral_earnings: 0,
-        role: isCipherUser ? 'cipher' : 'user',
-        funding_balance: 0,
-        available_balance: 0,
-        total_earnings: 0,
-        total_invested: 10, // $10 signup bonus directly into Assets Balance
-        email_verified: false,
-        suspended: false,
-        banned: false,
-        roi_disabled: false,
-        withdrawals_frozen: false,
-        transfers_frozen: false,
-        created_at: new Date().toISOString(),
-        roi_cycle_start: new Date().toISOString(),
-        last_rebook: new Date().toISOString()
-      };
-
+    const task = (async () => {
       try {
-        await setDoc(doc(db, 'users', firebaseUser.uid), newUserProfile);
-        
-        broadcastActivity(
-          newUserProfile.name || "New Partner",
-          "Registered",
-          undefined,
-          true,
-          "👤"
-        );
-        
-        // Generate an idempotent signup bonus transaction record
-        const txId = `signup-bonus-${firebaseUser.uid}`;
-        await setDoc(doc(db, 'transactions', txId), {
-          user_id: firebaseUser.uid,
-          type: 'signup_bonus',
-          amount: 10,
-          created_at: new Date().toISOString(),
-          status: 'approved',
-          description: "Congratulations, you have just received a $10 signup bonus into your assets balance."
-        });
-
-        if (referrerId) {
-          try {
-            await updateDoc(doc(db, 'users', referrerId), {
-              referrals_count: increment(1)
-            });
-          } catch (e) {
-            console.error("Failed to increment referrals_count", e);
-          }
-        }
-      } catch (profileErr) {
-        console.error("Error setting initial profile in Firestore during signup:", profileErr);
-      }
-
-      // 3. Send Verification (With Robust Retry)
-      let emailSent = false;
-      let emailAttempts = 0;
-      while (!emailSent && emailAttempts < 2) {
+        const userDocRef = doc(db, 'users', uid);
         try {
-          await sendEmailVerification(firebaseUser);
-          emailSent = true;
-        } catch (verifyError: any) {
-          emailAttempts++;
-          console.warn(`Verification email attempt ${emailAttempts} failed:`, verifyError);
-          if (emailAttempts >= 2) {
-            throw new Error("Failed to send verification email. Please check your internet connection or try again later.");
-          }
-          await new Promise(resolve => setTimeout(resolve, 1500));
-        }
-      }
-
-      // 4. Cache signup data with persistent selected country for post-verification profile creation
-      try {
-        const pendingData = {
-          fullName: fullName.trim(),
-          username: cleanUsername,
-          phone: normalizedPhone,
-          referralCode: referralCode.trim(),
-          email: email.trim().toLowerCase(),
-          country: countryContext.countryName,
-          countryName: countryContext.countryName,
-          country_code: countryContext.countryCode,
-          countryCode: countryContext.countryCode,
-          country_flag: countryContext.countryFlag,
-          countryFlag: countryContext.countryFlag,
-          timestamp: new Date().toISOString()
-        };
-        localStorage.setItem(`pending_signup_${firebaseUser.uid}`, JSON.stringify(pendingData));
-      } catch (cacheError) {
-        console.error("Critical: Failed to cache signup data", cacheError);
-      }
-      
-      // 5. Sign out to enforce verification on next login
-      await auth.signOut();
-
-      // 6. Trigger Success View
-      setSigninPhone(phone);
-      setSigninPassword(password);
-      setVerificationSent(true);
-      toast.success("Verification email sent!");
-      
-    } catch (error: any) {
-      console.error("Signup error:", error);
-      if (error.code === 'auth/email-already-in-use') {
-        toast.error("Account already exists. Please sign in.");
-        setAuthMode('signin');
-        setSigninPhone(phone);
-      } else if (error.message.includes('permission')) {
-        toast.error("Referral validation failed due to security protocols. Please refresh and try again.");
-      } else {
-        toast.error(error.message || "An error occurred during signup.");
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleSignin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    try {
-      const trimmedInput = signinPhone.trim();
-      if (!trimmedInput) {
-        toast.error("Please enter your phone number.");
-        setLoading(false);
-        return;
-      }
-      if (!signinPassword) {
-        toast.error("Please enter your password.");
-        setLoading(false);
-        return;
-      }
-
-      let resolvedEmail = '';
-
-      if (trimmedInput.includes('@')) {
-        resolvedEmail = trimmedInput.toLowerCase();
-      } else {
-        const countryCode = selectedCountry?.countryCode || 'NG';
-        const candidates = getPhoneLookupCandidates(trimmedInput, countryCode);
-
-        const usersRef = collection(db, 'users');
-        let snap = await getDocs(query(usersRef, where('phone', 'in', candidates.slice(0, 30))));
-
-        if (snap.empty) {
-          const canonical = normalizePhoneNumber(trimmedInput, countryCode);
-          if (canonical && !candidates.includes(canonical)) {
-            snap = await getDocs(query(usersRef, where('phone', '==', canonical)));
-          }
-        }
-
-        if (snap.empty) {
-          toast.error("No account found with this phone number. Please check your phone number or sign up.");
-          setLoading(false);
-          return;
-        }
-
-        // Verify exactly one account associated with this phone number
-        if (snap.docs.length > 1) {
-          const uniqueEmails = Array.from(new Set(snap.docs.map(d => d.data().email).filter(Boolean)));
-          if (uniqueEmails.length === 1) {
-            resolvedEmail = uniqueEmails[0];
-          } else {
-            toast.error("Multiple accounts found with this phone number. Please sign in with your email or contact support.");
-            setLoading(false);
+          const existingSnap = await withOperationTimeout(getDoc(userDocRef), 5000, "Profile check timeout");
+          if (existingSnap.exists()) {
+            if (firebaseUser.emailVerified && existingSnap.data()?.email_verified !== true) {
+              updateDoc(userDocRef, { email_verified: true }).catch(() => {});
+            }
+            try {
+              localStorage.removeItem(`pending_signup_${uid}`);
+            } catch (e) {}
             return;
           }
-        } else {
-          resolvedEmail = snap.docs[0].data().email;
+        } catch (readErr) {
+          console.warn("Profile existence check warning:", readErr);
         }
 
-        if (!resolvedEmail) {
-          toast.error("No email associated with this account. Please contact support.");
-          setLoading(false);
-          return;
+        let pendingData = pendingDataInput;
+        if (!pendingData) {
+          try {
+            const cachedStr = localStorage.getItem(`pending_signup_${uid}`);
+            if (cachedStr) pendingData = JSON.parse(cachedStr);
+          } catch (e) {}
         }
-      }
 
-      // STEP 1: Authenticate user in Firebase Auth
-      const userCredential = await signInWithEmailAndPassword(auth, resolvedEmail, signinPassword);
-      let firebaseUser = userCredential.user;
+        const fallbackCountry = selectedCountry || {
+          countryName: 'Nigeria',
+          countryCode: 'NG',
+          countryFlag: '🇳🇬'
+        };
 
-      // STEP 2: Reload auth state and check email verification first
-      await firebaseUser.reload();
-      firebaseUser = auth.currentUser || firebaseUser;
-
-      const isCipherUser = firebaseUser.email === 'support@tavariwave.network' || 
-                       firebaseUser.email === 'contact.cga.usa@gmail.com' || 
-                       firebaseUser.uid === '3yV3rfcUzob5v9ltfVcMw0PL6tQ2';
-
-      if (!firebaseUser.emailVerified && !isCipherUser) {
-        toast.error("Please verify your email before signing in.");
-        await auth.signOut();
-        setLoading(false);
-        return;
-      }
-
-      // Force token refresh so Firestore rules recognize new authentication state
-      await firebaseUser.getIdToken(true);
-
-      // STEP 3: Safe, non-blocking profile retrieval
-      let userDoc = null;
-      try {
-        userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
-      } catch (err: any) {
-        console.warn("Soft-caught Firestore permission/fetch error in handleSignin:", err);
-      }
-
-      // Update email_verified in Firestore if it was false
-      if (userDoc?.exists() && userDoc.data()?.email_verified !== true) {
-        updateDoc(doc(db, 'users', firebaseUser.uid), { email_verified: true }).catch(() => {});
-      }
-
-      // Harmonize phone to canonical format if needed
-      if (userDoc?.exists() && userDoc.data()?.phone) {
-        const canonicalPhone = normalizePhoneNumber(userDoc.data().phone, userDoc.data().countryCode || selectedCountry?.countryCode);
-        if (canonicalPhone && userDoc.data().phone !== canonicalPhone) {
-          updateDoc(doc(db, 'users', firebaseUser.uid), { phone: canonicalPhone }).catch(() => {});
-        }
-      }
-
-      // STEP 4: Device Fingerprint & Security Verification
-      const deviceId = getDeviceFingerprint();
-      const trustedDevicesKey = `trusted_devices_${firebaseUser.uid}`;
-      const trustedDevices = JSON.parse(localStorage.getItem(trustedDevicesKey) || '[]');
-      const isNewDevice = !trustedDevices.includes(deviceId);
-
-      // Extract transaction PIN (stored in profile as transfer_pin)
-      const profileData = userDoc?.exists() ? userDoc.data() : null;
-      const userPin = profileData?.transfer_pin;
-
-      if (isNewDevice && userPin && !isCipherUser) {
-        // Unknown device and user has a Transaction PIN -> Prompt for PIN
-        setTempUser(firebaseUser);
-        setRequiresOtp(true); // Reuse verification panel for Enter PIN
-        setLoading(false);
-        toast.info("New device detected. Verification required.");
-        logAudit(firebaseUser.uid, 'mfa_triggered_pin', { deviceId }).catch(() => {});
-        return;
-      }
-
-      // STEP 5: Create user profile if it doesn't exist (first-time login)
-      if (!userDoc || !userDoc.exists()) {
-        console.log("User document missing. Creating fallback profile...");
-        const cachedDataStr = localStorage.getItem(`pending_signup_${firebaseUser.uid}`);
-        let pendingData = null;
-        if (cachedDataStr) {
-          try { pendingData = JSON.parse(cachedDataStr); } catch (e) {}
-        }
-        
         let referrerId: string | null = null;
         let referrerCodeValue: string | null = null;
-        
-        if (pendingData?.referralCode?.trim()) {
-          const cleanRef = pendingData.referralCode.trim().toUpperCase();
-          const q = query(collection(db, 'users'), where('referral_code', '==', cleanRef));
+        const rawRefCode = (pendingData?.referralCode || referralCode || '').trim().toUpperCase();
+        if (rawRefCode) {
           try {
-            const querySnapshot = await getDocs(q);
-            if (!querySnapshot.empty) {
-              referrerId = querySnapshot.docs[0].id;
-              referrerCodeValue = cleanRef;
+            const q = query(collection(db, 'users'), where('referral_code', '==', rawRefCode));
+            const snap = await withOperationTimeout(getDocs(q), 4000, "Referral lookup timeout");
+            if (!snap.empty) {
+              referrerId = snap.docs[0].id;
+              referrerCodeValue = rawRefCode;
             }
-          } catch (e) {
-            console.warn("Failed querying referral code silently:", e);
+          } catch (refErr) {
+            console.warn("Referral code lookup skipped or failed:", refErr);
           }
         }
 
+        const isCipherUser =
+          firebaseUser.email === 'support@tavariwave.network' ||
+          firebaseUser.email === 'contact.cga.usa@gmail.com' ||
+          firebaseUser.uid === '3yV3rfcUzob5v9ltfVcMw0PL6tQ2';
         const userRefCode = isCipherUser ? 'CIPHER' : generateReferralCode();
+
+        const resolvedCountryName = pendingData?.country || pendingData?.countryName || fallbackCountry.countryName || 'Nigeria';
+        const resolvedCountryCode = pendingData?.country_code || pendingData?.countryCode || fallbackCountry.countryCode || 'NG';
+        const resolvedCountryFlag = pendingData?.country_flag || pendingData?.countryFlag || fallbackCountry.countryFlag || '🇳🇬';
+        const resolvedPhone = normalizePhoneNumber(
+          pendingData?.phone || phone || signinPhone,
+          resolvedCountryCode
+        );
+        const resolvedEmail = (pendingData?.email || firebaseUser.email || email || '').trim().toLowerCase();
+
+        if (resolvedPhone && resolvedEmail) {
+          cachePhoneEmailMapping(resolvedPhone, resolvedEmail);
+        }
+
         const newUserProfile = {
           uid: firebaseUser.uid,
-          name: isCipherUser ? 'Cipher' : (pendingData?.fullName || firebaseUser.displayName || 'Nexus User'),
-          username: isCipherUser ? 'cipher_root' : (pendingData?.username || firebaseUser.email?.split('@')[0] || 'user'),
-          email: firebaseUser.email || '',
-          phone: normalizePhoneNumber(pendingData?.phone || signinPhone, pendingData?.countryCode || selectedCountry?.countryCode),
-          country: pendingData?.country || pendingData?.countryName || selectedCountry?.countryName || 'Nigeria',
-          countryName: pendingData?.countryName || pendingData?.country || selectedCountry?.countryName || 'Nigeria',
-          country_code: pendingData?.countryCode || selectedCountry?.countryCode || 'NG',
-          countryCode: pendingData?.countryCode || selectedCountry?.countryCode || 'NG',
-          country_flag: pendingData?.countryFlag || selectedCountry?.countryFlag || '🇳🇬',
-          countryFlag: pendingData?.countryFlag || selectedCountry?.countryFlag || '🇳🇬',
+          name: isCipherUser ? 'Cipher' : (pendingData?.fullName || fullName.trim() || firebaseUser.displayName || 'Nexus User'),
+          username: isCipherUser ? 'cipher_root' : (pendingData?.username || username.trim().toLowerCase() || firebaseUser.email?.split('@')[0]?.toLowerCase() || 'user'),
+          email: resolvedEmail,
+          phone: resolvedPhone,
+          country: resolvedCountryName,
+          countryName: resolvedCountryName,
+          country_code: resolvedCountryCode,
+          countryCode: resolvedCountryCode,
+          country_flag: resolvedCountryFlag,
+          countryFlag: resolvedCountryFlag,
           public_id: generatePublicId(),
           referral_code: userRefCode,
           referral_link: `${window.location.origin}/signup?ref=${userRefCode}`,
@@ -1176,7 +988,7 @@ export default function LandingPage() {
           available_balance: 0,
           total_earnings: 0,
           total_invested: 10, // $10 signup bonus directly into Assets Balance
-          email_verified: true,
+          email_verified: Boolean(firebaseUser.emailVerified),
           suspended: false,
           banned: false,
           roi_disabled: false,
@@ -1187,41 +999,558 @@ export default function LandingPage() {
           last_rebook: new Date().toISOString()
         };
 
-        if (referrerId) {
-          try {
-            await updateDoc(doc(db, 'users', referrerId), {
-              referrals_count: increment(1)
-            });
-          } catch (e) {
-            console.error("Failed to increment referrals_count", e);
-          }
-        }
+        await withOperationTimeout(setDoc(userDocRef, newUserProfile), 6000, "Profile write timeout");
 
-        try {
-          await setDoc(doc(db, 'users', firebaseUser.uid), newUserProfile);
-          
-          broadcastActivity(
-            newUserProfile.name || "New Partner",
-            "Registered",
-            undefined,
-            true,
-            "👤"
-          );
-          
-          // Generate an idempotent signup bonus transaction record
-          const txId = `signup-bonus-${firebaseUser.uid}`;
-          await setDoc(doc(db, 'transactions', txId), {
+        void broadcastActivity(
+          newUserProfile.name || "New Partner",
+          "Registered",
+          undefined,
+          true,
+          "👤"
+        );
+
+        const txId = `signup-bonus-${firebaseUser.uid}`;
+        withOperationTimeout(
+          setDoc(doc(db, 'transactions', txId), {
             user_id: firebaseUser.uid,
             type: 'signup_bonus',
             amount: 10,
             created_at: new Date().toISOString(),
             status: 'approved',
             description: "Congratulations, you have just received a $10 signup bonus into your assets balance."
+          }),
+          5000,
+          "Bonus tx timeout"
+        ).catch(() => {});
+
+        if (referrerId) {
+          updateDoc(doc(db, 'users', referrerId), {
+            referrals_count: increment(1)
+          }).catch((e) => {
+            console.warn("Failed to increment referrals_count:", e);
           });
-        } catch (setErr) {
-          console.warn("Grace-failed setting profile on sign-in, AuthContext will auto-heal:", setErr);
         }
-        if (cachedDataStr) localStorage.removeItem(`pending_signup_${firebaseUser.uid}`);
+
+        try {
+          localStorage.removeItem(`pending_signup_${uid}`);
+        } catch (e) {}
+      } catch (profileErr) {
+        console.warn("Deferred profile creation will complete on verified sign-in:", profileErr);
+      } finally {
+        profileCreationInFlight.delete(uid);
+      }
+    })();
+
+    profileCreationInFlight.set(uid, task);
+    return task;
+  };
+
+  const handleResendVerification = async () => {
+    if (resendingVerification || resendCooldown > 0) return;
+
+    setResendingVerification(true);
+    try {
+      let targetUser = auth.currentUser || pendingVerificationUserRef.current || pendingVerificationUser;
+
+      if (!targetUser && email.trim() && password) {
+        try {
+          const cred = await withOperationTimeout(
+            signInWithEmailAndPassword(auth, email.trim().toLowerCase(), password),
+            12000,
+            "Unable to reconnect session to resend verification email."
+          );
+          targetUser = cred.user;
+          pendingVerificationUserRef.current = targetUser;
+          setPendingVerificationUser(targetUser);
+        } catch (reauthErr) {
+          console.warn("Silent re-auth for resend failed:", reauthErr);
+        }
+      }
+
+      if (!targetUser) {
+        const msg = "Your session expired. Please sign in to request a new verification email.";
+        setVerificationError(msg);
+        toast.error(msg);
+        setVerificationSent(false);
+        setAuthMode('signin');
+        return;
+      }
+
+      try {
+        await withOperationTimeout(targetUser.reload(), 5000, "Reload timeout");
+      } catch (e) {}
+
+      const refreshedUser = auth.currentUser || targetUser;
+      if (refreshedUser.emailVerified) {
+        setVerificationError(null);
+        toast.success("Your email is already verified! Signing you in...");
+        void ensureSignupProfileCreated(refreshedUser);
+        updateDoc(doc(db, 'users', refreshedUser.uid), { email_verified: true }).catch(() => {});
+        void syncAuthSession(refreshedUser);
+        setVerificationSent(false);
+        navigate('/home', { replace: true, state: { verified: true } });
+        return;
+      }
+
+      await withOperationTimeout(
+        sendEmailVerification(refreshedUser),
+        15000,
+        "Unable to send the verification email right now. Please try again."
+      );
+
+      setVerificationError(null);
+      startResendCooldown(60);
+      toast.success("Verification email resent! Please check your inbox or spam folder.");
+    } catch (err: any) {
+      console.error("Resend verification error:", err);
+      const friendlyMsg = getFriendlyVerificationErrorMessage(err);
+      setVerificationError(friendlyMsg);
+      if (err?.code === 'auth/too-many-requests' || err?.code === 'auth/quota-exceeded') {
+        startResendCooldown(30);
+      }
+      toast.error(friendlyMsg);
+    } finally {
+      setResendingVerification(false);
+    }
+  };
+
+  const handleVerificationContinue = async () => {
+    if (loading) return;
+    setLoading(true);
+    try {
+      const targetUser = auth.currentUser || pendingVerificationUserRef.current || pendingVerificationUser;
+      if (targetUser) {
+        try {
+          await withOperationTimeout(targetUser.reload(), 4000, "Reload timeout");
+        } catch (e) {}
+        const refreshedUser = auth.currentUser || targetUser;
+        if (refreshedUser.emailVerified) {
+          void ensureSignupProfileCreated(refreshedUser);
+          updateDoc(doc(db, 'users', refreshedUser.uid), { email_verified: true }).catch(() => {});
+          void syncAuthSession(refreshedUser);
+          setVerificationSent(false);
+          setVerificationError(null);
+          toast.success("Email verified! Welcome to CGA Trades.");
+          navigate('/home', { replace: true, state: { verified: true } });
+          return;
+        }
+      }
+    } catch (e) {
+      console.warn("Verification check on continue:", e);
+    } finally {
+      setLoading(false);
+    }
+
+    setVerificationSent(false);
+    setVerificationError(null);
+    setAuthMode('signin');
+  };
+
+  useEffect(() => {
+    if (!verificationSent) return;
+    let isChecking = false;
+
+    const checkVerifiedOnFocus = async () => {
+      if (isChecking) return;
+      const targetUser = auth.currentUser || pendingVerificationUserRef.current;
+      if (!targetUser) return;
+      isChecking = true;
+      try {
+        await withOperationTimeout(targetUser.reload(), 4000, "Reload timeout");
+        const refreshedUser = auth.currentUser || targetUser;
+        if (refreshedUser.emailVerified) {
+          void ensureSignupProfileCreated(refreshedUser);
+          updateDoc(doc(db, 'users', refreshedUser.uid), { email_verified: true }).catch(() => {});
+          void syncAuthSession(refreshedUser);
+          setVerificationSent(false);
+          setVerificationError(null);
+          toast.success("Email verified! Welcome to CGA Trades.");
+          navigate('/home', { replace: true, state: { verified: true } });
+        }
+      } catch (e) {
+        // Ignore silent focus check errors
+      } finally {
+        isChecking = false;
+      }
+    };
+
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        void checkVerifiedOnFocus();
+      }
+    };
+
+    window.addEventListener('focus', checkVerifiedOnFocus);
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => {
+      window.removeEventListener('focus', checkVerifiedOnFocus);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, [verificationSent, navigate, syncAuthSession]);
+
+  const handleSignup = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (loading || isSubmittingAuthRef.current) return;
+
+    const cleanFullName = fullName.trim();
+    if (!cleanFullName) {
+      toast.error("Full name is required.");
+      return;
+    }
+    const cleanUsername = username.trim().toLowerCase();
+    if (!cleanUsername) {
+      toast.error("Username is required.");
+      return;
+    }
+    if (username !== cleanUsername) {
+      setUsername(cleanUsername);
+    }
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail) {
+      toast.error("Email address is required.");
+      return;
+    }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(cleanEmail)) {
+      toast.error("Please enter a valid email address.");
+      return;
+    }
+    if (!phone || phone.trim().length < 5) {
+      toast.error("Valid phone number is required.");
+      return;
+    }
+    const countryContext = selectedCountry || {
+      countryName: 'Nigeria',
+      countryCode: 'NG',
+      countryFlag: '🇳🇬'
+    };
+    const normalizedPhone = normalizePhoneNumber(phone, countryContext.countryCode);
+    if (!normalizedPhone || normalizedPhone.replace(/\D/g, '').length < 7) {
+      toast.error("Valid phone number is required.");
+      return;
+    }
+    if (password !== confirmPassword) {
+      toast.error("Passwords do not match.");
+      return;
+    }
+    if (password.length < 6) {
+      toast.error("Password must be at least 6 characters.");
+      return;
+    }
+
+    isSubmittingAuthRef.current = true;
+    setLoading(true);
+    setVerificationError(null);
+
+    try {
+      // 1. Create Firebase Auth Account immediately on the critical path
+      const userCredential = await withOperationTimeout(
+        createUserWithEmailAndPassword(auth, cleanEmail, password),
+        25000,
+        "Network timeout while creating your account. Please check your internet connection and try again."
+      );
+      const firebaseUser = userCredential.user;
+
+      pendingVerificationUserRef.current = firebaseUser;
+      setPendingVerificationUser(firebaseUser);
+      setSigninPhone(phone);
+      setSigninPassword(password);
+
+      // 2. Cache signup data synchronously for resilience and phone-to-email lookup
+      const pendingData = {
+        fullName: cleanFullName,
+        username: cleanUsername,
+        phone: normalizedPhone,
+        referralCode: referralCode.trim().toUpperCase(),
+        email: cleanEmail,
+        country: countryContext.countryName,
+        countryName: countryContext.countryName,
+        country_code: countryContext.countryCode,
+        countryCode: countryContext.countryCode,
+        country_flag: countryContext.countryFlag,
+        countryFlag: countryContext.countryFlag,
+        timestamp: new Date().toISOString()
+      };
+
+      try {
+        localStorage.setItem(`pending_signup_${firebaseUser.uid}`, JSON.stringify(pendingData));
+        cachePhoneEmailMapping(normalizedPhone, cleanEmail);
+      } catch (cacheError) {
+        console.warn("Failed to cache signup data to localStorage:", cacheError);
+      }
+
+      // 3. Start Firestore profile creation asynchronously so it NEVER delays the verification email
+      void ensureSignupProfileCreated(firebaseUser, pendingData);
+
+      // 4. Send verification email IMMEDIATELY after account creation
+      try {
+        await withOperationTimeout(
+          sendEmailVerification(firebaseUser),
+          20000,
+          "Unable to send the verification email right now. Please try again."
+        );
+        setVerificationError(null);
+        setVerificationSent(true);
+        startResendCooldown(60);
+        toast.success("Verification email sent!");
+      } catch (verifyError: any) {
+        console.error("Initial verification email send error:", verifyError);
+        const friendlyVerifyErr = getFriendlyVerificationErrorMessage(verifyError);
+        setVerificationError(friendlyVerifyErr);
+        setResendCooldown(0);
+        setVerificationSent(true);
+        toast.error(friendlyVerifyErr);
+      }
+    } catch (error: any) {
+      console.error("Signup error:", error);
+      const friendlyMsg = getFriendlySignupErrorMessage(error);
+      toast.error(friendlyMsg);
+      if (error?.code === 'auth/email-already-in-use') {
+        setSigninPhone(phone);
+      }
+    } finally {
+      isSubmittingAuthRef.current = false;
+      setLoading(false);
+    }
+  };
+
+  const handleSignin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (loading || isSubmittingAuthRef.current) return;
+
+    const trimmedInput = signinPhone.trim();
+    if (!trimmedInput) {
+      toast.error("Please enter your phone number.");
+      return;
+    }
+    if (!signinPassword) {
+      toast.error("Please enter your password.");
+      return;
+    }
+
+    isSubmittingAuthRef.current = true;
+    setLoading(true);
+    try {
+      let resolvedEmail = '';
+      let candidateEmails: string[] = [];
+
+      if (trimmedInput.includes('@')) {
+        resolvedEmail = trimmedInput.toLowerCase();
+        candidateEmails = [resolvedEmail];
+      } else {
+        const countryCode = (selectedCountry?.countryCode || detectedCountry || 'NG').toUpperCase();
+        const prioritySet = new Set<string>();
+        prioritySet.add(trimmedInput);
+        const digitsOnly = trimmedInput.replace(/\D/g, '');
+        if (digitsOnly) {
+          prioritySet.add(digitsOnly);
+          prioritySet.add(`+${digitsOnly}`);
+          const withoutZero = digitsOnly.replace(/^0+/, '');
+          if (withoutZero) {
+            prioritySet.add(withoutZero);
+            prioritySet.add(`0${withoutZero}`);
+          }
+        }
+
+        for (const cc of [countryCode, 'NG', 'US', 'GB', 'CA', 'GH', 'KE', 'ZA', 'IN']) {
+          const norm = normalizePhoneNumber(trimmedInput, cc);
+          if (norm) {
+            prioritySet.add(norm);
+            prioritySet.add(norm.replace(/^\+/, ''));
+          }
+        }
+
+        for (const cand of getPhoneLookupCandidates(trimmedInput, countryCode)) {
+          prioritySet.add(cand);
+        }
+
+        const allCandidates = Array.from(prioritySet).filter(Boolean);
+
+        // 1. Check fast local cache first (0ms) so login never fails if Firestore is slow
+        const cachedEmail = lookupCachedEmailByPhone(allCandidates);
+
+        // Also check if current session's pending signup matches
+        let sessionPendingEmail: string | null = null;
+        try {
+          if (auth.currentUser?.uid) {
+            const pendingRaw = localStorage.getItem(`pending_signup_${auth.currentUser.uid}`);
+            if (pendingRaw) {
+              const parsed = JSON.parse(pendingRaw);
+              if (parsed?.phone && allCandidates.includes(parsed.phone) && parsed?.email) {
+                sessionPendingEmail = String(parsed.email).trim().toLowerCase();
+              }
+            }
+          }
+        } catch (e) {}
+
+        // 2. Query Firestore users collection across chunks in parallel with a short timeout
+        const usersRef = collection(db, 'users');
+        const chunks: string[][] = [];
+        for (let i = 0; i < allCandidates.length; i += 30) {
+          chunks.push(allCandidates.slice(i, i + 30));
+        }
+
+        try {
+          const snaps = await withOperationTimeout(
+            Promise.all(chunks.map((chunk) => getDocs(query(usersRef, where('phone', 'in', chunk))))),
+            6000,
+            "Network timeout while looking up account. Please check your connection and try again."
+          );
+
+          const matchedDocs = snaps.flatMap((s) => s.docs);
+          if (matchedDocs.length > 0) {
+            const sortedDocs = [...matchedDocs].sort((a, b) => {
+              const aData = a.data();
+              const bData = b.data();
+              const aVerified = aData.email_verified === true ? 1 : 0;
+              const bVerified = bData.email_verified === true ? 1 : 0;
+              if (aVerified !== bVerified) return bVerified - aVerified;
+              const aTime = aData.created_at ? new Date(aData.created_at).getTime() : 0;
+              const bTime = bData.created_at ? new Date(bData.created_at).getTime() : 0;
+              return bTime - aTime;
+            });
+            candidateEmails = Array.from(
+              new Set(sortedDocs.map((d) => String(d.data().email || '').trim().toLowerCase()).filter(Boolean))
+            );
+          }
+        } catch (lookupErr: any) {
+          console.warn("Phone lookup query warning:", lookupErr);
+          if (!cachedEmail && !sessionPendingEmail) {
+            throw lookupErr;
+          }
+        }
+
+        if (sessionPendingEmail && !candidateEmails.includes(sessionPendingEmail)) {
+          candidateEmails.push(sessionPendingEmail);
+        }
+        if (cachedEmail && !candidateEmails.includes(cachedEmail)) {
+          candidateEmails.push(cachedEmail);
+        }
+
+        resolvedEmail = candidateEmails[0] || '';
+
+        if (!resolvedEmail) {
+          toast.error("No account found with this phone number. Please check your phone number or sign up.");
+          return;
+        }
+      }
+
+      // STEP 1: Authenticate user in Firebase Auth (trying candidate emails if multiple exist)
+      let userCredential = null;
+      let lastAuthErr: any = null;
+      const emailsToTry = candidateEmails.length > 0 ? candidateEmails : [resolvedEmail];
+
+      for (const emailCandidate of emailsToTry) {
+        try {
+          userCredential = await withOperationTimeout(
+            signInWithEmailAndPassword(auth, emailCandidate, signinPassword),
+            12000,
+            "Network timeout while signing in. Please check your connection and try again."
+          );
+          resolvedEmail = emailCandidate;
+          break;
+        } catch (authErr: any) {
+          lastAuthErr = authErr;
+          if (
+            authErr?.code !== 'auth/invalid-credential' &&
+            authErr?.code !== 'auth/wrong-password' &&
+            authErr?.code !== 'auth/user-not-found' &&
+            authErr?.code !== 'auth/invalid-email'
+          ) {
+            throw authErr;
+          }
+        }
+      }
+
+      if (!userCredential) {
+        throw lastAuthErr || { code: 'auth/invalid-credential' };
+      }
+
+      let firebaseUser = userCredential.user;
+
+      // Cache phone -> email mapping for instant future sign-ins
+      if (!trimmedInput.includes('@') && resolvedEmail) {
+        const countryCode = (selectedCountry?.countryCode || detectedCountry || 'NG').toUpperCase();
+        const canonicalInputPhone = normalizePhoneNumber(trimmedInput, countryCode);
+        if (canonicalInputPhone) {
+          cachePhoneEmailMapping(canonicalInputPhone, resolvedEmail);
+        }
+      }
+
+      const isCipherUser = firebaseUser.email === 'support@tavariwave.network' || 
+                       firebaseUser.email === 'contact.cga.usa@gmail.com' || 
+                       firebaseUser.uid === '3yV3rfcUzob5v9ltfVcMw0PL6tQ2';
+
+      // STEP 2: Only reload if emailVerified is currently false (in case user just verified in another tab)
+      if (!firebaseUser.emailVerified && !isCipherUser) {
+        try {
+          await withOperationTimeout(firebaseUser.reload(), 4000, "Reload timeout");
+          firebaseUser = auth.currentUser || firebaseUser;
+          if (firebaseUser.emailVerified) {
+            await withOperationTimeout(firebaseUser.getIdToken(true), 4000, "Token refresh timeout").catch(() => {});
+          }
+        } catch (reloadErr) {
+          console.warn("Reload warning during sign-in:", reloadErr);
+        }
+      }
+
+      if (!firebaseUser.emailVerified && !isCipherUser) {
+        pendingVerificationUserRef.current = firebaseUser;
+        setPendingVerificationUser(firebaseUser);
+        void ensureSignupProfileCreated(firebaseUser);
+        setVerificationError(null);
+        setVerificationSent(true);
+        toast.error("Please verify your email before signing in.");
+        return;
+      }
+
+      // STEP 3: Fast, strictly-bounded profile check (never blocks login if Firestore is slow)
+      const deviceId = getDeviceFingerprint();
+      const trustedDevicesKey = `trusted_devices_${firebaseUser.uid}`;
+      let trustedDevices: string[] = [];
+      try {
+        trustedDevices = JSON.parse(localStorage.getItem(trustedDevicesKey) || '[]');
+      } catch (e) {}
+      const isNewDevice = !trustedDevices.includes(deviceId);
+
+      let userDoc = null;
+      try {
+        userDoc = await withOperationTimeout(
+          getDoc(doc(db, 'users', firebaseUser.uid)),
+          2500,
+          "Profile fetch timeout"
+        );
+      } catch (err: any) {
+        console.warn("Non-blocking profile check warning in handleSignin:", err);
+      }
+
+      if (userDoc?.exists()) {
+        const profileData = userDoc.data();
+        if (profileData?.email_verified !== true) {
+          updateDoc(doc(db, 'users', firebaseUser.uid), { email_verified: true }).catch(() => {});
+        }
+        if (profileData?.phone) {
+          const canonicalPhone = normalizePhoneNumber(profileData.phone, profileData.countryCode || selectedCountry?.countryCode);
+          if (canonicalPhone) {
+            cachePhoneEmailMapping(canonicalPhone, resolvedEmail || firebaseUser.email || '');
+            if (profileData.phone !== canonicalPhone) {
+              updateDoc(doc(db, 'users', firebaseUser.uid), { phone: canonicalPhone }).catch(() => {});
+            }
+          }
+        }
+
+        // STEP 4: Device Fingerprint & Security Verification (if user configured a Transaction PIN)
+        const userPin = profileData?.transfer_pin;
+        if (isNewDevice && userPin && !isCipherUser) {
+          setTempUser(firebaseUser);
+          setRequiresOtp(true);
+          toast.info("New device detected. Verification required.");
+          logAudit(firebaseUser.uid, 'mfa_triggered_pin', { deviceId }).catch(() => {});
+          return;
+        }
+      } else {
+        // STEP 5: Ensure user profile exists in the background without blocking login navigation
+        void ensureSignupProfileCreated(firebaseUser);
       }
 
       // Register device and store locally as trusted
@@ -1232,38 +1561,55 @@ export default function LandingPage() {
         }
       } catch (e) {}
 
-      // Register in Firestore silently
+      // Register in Firestore silently in background
       registerDevice(firebaseUser.uid, deviceId).catch(() => {});
       logAudit(firebaseUser.uid, 'login_success').catch(() => {});
 
+      // Sync authenticated user into AuthContext immediately and navigate to Home
+      void syncAuthSession(firebaseUser);
+
       if (isCipherUser) {
         toast.success("Cipher Terminal Accessed");
-        navigate('/cipher');
+        navigate('/cipher', { replace: true });
       } else {
         toast.success("Identity Verified. Welcome back!");
-        navigate('/home', { replace: true });
+        navigate('/home', { replace: true, state: { verified: true } });
       }
     } catch (error: any) {
       console.error("Sign-in process error:", error);
-      if (error.code === 'auth/invalid-credential' || error.code === 'auth/wrong-password' || error.code === 'auth/user-not-found') {
+      if (
+        error?.code === 'auth/invalid-credential' ||
+        error?.code === 'auth/wrong-password' ||
+        error?.code === 'auth/user-not-found' ||
+        error?.code === 'auth/invalid-email'
+      ) {
         toast.error("Invalid login credentials.");
+      } else if (error?.code === 'auth/too-many-requests') {
+        toast.error("Too many sign-in attempts. Please wait a moment and try again.");
+      } else if (error?.code === 'auth/network-request-failed') {
+        toast.error(error.message && !String(error.message).startsWith('Firebase:') ? error.message : "Network error while signing in. Please check your connection and try again.");
       } else {
-        toast.error(error.message || "An unexpected error occurred during sign-in.");
+        toast.error(error?.message || "An unexpected error occurred during sign-in.");
       }
     } finally {
+      isSubmittingAuthRef.current = false;
       setLoading(false);
     }
   };
 
   const handleVerifyOtp = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!tempUser) return;
+    if (!tempUser || loading) return;
     
     setLoading(true);
     try {
       let storedPin: string | null = null;
       try {
-        const userDoc = await getDoc(doc(db, 'users', tempUser.uid));
+        const userDoc = await withOperationTimeout(
+          getDoc(doc(db, 'users', tempUser.uid)),
+          4000,
+          "PIN verification timeout"
+        );
         if (userDoc.exists()) {
           storedPin = userDoc.data().transfer_pin || null;
         }
@@ -1281,14 +1627,15 @@ export default function LandingPage() {
           trustedDevices.push(deviceId);
           localStorage.setItem(trustedDevicesKey, JSON.stringify(trustedDevices));
         }
-        await registerDevice(tempUser.uid, deviceId).catch(() => {});
-        navigate('/home', { replace: true });
+        registerDevice(tempUser.uid, deviceId).catch(() => {});
+        void syncAuthSession(tempUser);
+        navigate('/home', { replace: true, state: { verified: true } });
         return;
       }
 
       if (userOtp === storedPin) {
         toast.success("PIN Verified. Access granted.");
-        await logAudit(tempUser.uid, 'mfa_success_pin').catch(() => {});
+        logAudit(tempUser.uid, 'mfa_success_pin').catch(() => {});
         
         const deviceId = getDeviceFingerprint();
         const trustedDevicesKey = `trusted_devices_${tempUser.uid}`;
@@ -1298,48 +1645,50 @@ export default function LandingPage() {
           localStorage.setItem(trustedDevicesKey, JSON.stringify(trustedDevices));
         }
         
-        await registerDevice(tempUser.uid, deviceId).catch(() => {});
-        navigate('/home', { replace: true });
+        registerDevice(tempUser.uid, deviceId).catch(() => {});
+        void syncAuthSession(tempUser);
+        navigate('/home', { replace: true, state: { verified: true } });
       } else {
         toast.error("Invalid transaction PIN.");
-        await logAudit(tempUser.uid, 'mfa_failed_pin', { reason: 'invalid_pin' }).catch(() => {});
+        logAudit(tempUser.uid, 'mfa_failed_pin', { reason: 'invalid_pin' }).catch(() => {});
       }
     } catch (error: any) {
-      toast.error(error.message);
+      toast.error(error?.message || "Verification failed.");
     } finally {
       setLoading(false);
     }
   };
 
   const handleGoogleAuth = async () => {
-    if (loading) return;
+    if (loading || isSubmittingAuthRef.current) return;
+    isSubmittingAuthRef.current = true;
     setLoading(true);
     try {
       // Validate Referral Code if provided first
       if (referralCode.trim()) {
         const cleanRef = referralCode.trim().toUpperCase();
-        const q = query(collection(db, 'users'), where('referral_code', '==', cleanRef));
-        const snap = await getDocs(q);
-        if (snap.empty) {
-          toast.error("The referral code you entered does not exist.");
-          setLoading(false);
-          return;
+        try {
+          const q = query(collection(db, 'users'), where('referral_code', '==', cleanRef));
+          const snap = await withOperationTimeout(getDocs(q), 4000, "Referral check timeout");
+          if (snap.empty) {
+            toast.error("The referral code you entered does not exist.");
+            return;
+          }
+        } catch (refErr) {
+          console.warn("Referral check warning during Google auth:", refErr);
         }
       }
 
       const result = await signInWithPopup(auth, googleProvider);
       const user = result.user;
 
-      // Force refreshing the user authentication token immediately.
-      // This is crucial because it updates the token claims (like email_verified) in the client state synchronously,
-      // which allows Firestore security rules to immediately recognize the Google user authentication and permissions.
-      await user.getIdToken(true);
+      await withOperationTimeout(user.getIdToken(true), 4000, "Token refresh timeout").catch(() => {});
 
       const isCipher = user.email === 'support@tavariwave.network' || user.email === 'contact.cga.usa@gmail.com' || user.uid === '3yV3rfcUzob5v9ltfVcMw0PL6tQ2';
 
       let userDoc = null;
       try {
-        userDoc = await getDoc(doc(db, 'users', user.uid));
+        userDoc = await withOperationTimeout(getDoc(doc(db, 'users', user.uid)), 3000, "Profile fetch timeout");
       } catch (err: any) {
         console.warn("Soft-caught Firestore permission/fetch error in handleGoogleAuth:", err);
       }
@@ -1356,7 +1705,6 @@ export default function LandingPage() {
       if (isNewDevice && userPin && !isCipher) {
         setTempUser(user);
         setRequiresOtp(true);
-        setLoading(false);
         toast.info("New device detected. Verification required.");
         logAudit(user.uid, 'mfa_triggered_pin', { deviceId }).catch(() => {});
         return;
@@ -1366,7 +1714,6 @@ export default function LandingPage() {
         // If user is signing up with Google and lacks phone/password setup:
         setGoogleSetupUser(user);
         setIsGoogleSetupOpen(true);
-        setLoading(false);
         return;
       }
 
@@ -1382,8 +1729,9 @@ export default function LandingPage() {
       registerDevice(user.uid, deviceId).catch(() => {});
       logAudit(user.uid, 'login_success').catch(() => {});
       
+      void syncAuthSession(user);
       toast.success(isCipher ? "Cipher Terminal Accessed" : "Welcome back!");
-      navigate(isCipher ? '/cipher' : '/home');
+      navigate(isCipher ? '/cipher' : '/home', { replace: true, state: { verified: true } });
     } catch (error: any) {
       console.error("Google auth error:", error);
       if (error.code === 'auth/popup-closed-by-user') {
@@ -1392,6 +1740,7 @@ export default function LandingPage() {
         toast.error(error.message || "Google authentication failed.");
       }
     } finally {
+      isSubmittingAuthRef.current = false;
       setLoading(false);
     }
   };
@@ -1761,26 +2110,46 @@ export default function LandingPage() {
                   </div>
 
                   {verificationSent ? (
-                    <div className="text-center space-y-6 py-6">
+                    <div className="text-center space-y-5 py-6">
                       <div className="w-20 h-20 bg-emerald-500/10 rounded-full flex items-center justify-center mx-auto border border-emerald-500/20">
                         <CheckCircle2 size={40} className="text-emerald-500" />
                       </div>
-                      <div className="space-y-3 px-2">
+                      <div className="space-y-2.5 px-2">
                         <h3 className="text-2xl font-bold text-slate-900 dark:text-white">Verify Your Email</h3>
                         <p className="text-slate-500 dark:text-aura-muted text-xs font-semibold leading-relaxed">
                           Your account has been created successfully.<br/>
-                          Please check your inbox or spam folder to verify your email before signing in.
+                          Please check your inbox or spam folder{email ? ` (${email.trim()})` : ''} to verify your email before signing in.
                         </p>
+                        {verificationError && (
+                          <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 text-xs font-semibold">
+                            {verificationError}
+                          </div>
+                        )}
                       </div>
-                      <button 
-                        onClick={() => { 
-                          setVerificationSent(false); 
-                          setAuthMode('signin'); 
-                        }}
-                        className="w-full py-4 bg-gradient-to-r from-primary to-secondary text-white font-bold rounded-2xl shadow-[0_0_20px_rgba(0,158,66,0.3)] hover:scale-[1.01] active:scale-[0.99] transition-all flex items-center justify-center gap-2 text-sm"
-                      >
-                        OK <ArrowRight size={16} />
-                      </button>
+                      <div className="space-y-3">
+                        <button 
+                          type="button"
+                          onClick={handleVerificationContinue}
+                          disabled={loading}
+                          className="w-full py-4 bg-gradient-to-r from-primary to-secondary text-white font-bold rounded-2xl shadow-[0_0_20px_rgba(0,158,66,0.3)] hover:scale-[1.01] active:scale-[0.99] transition-all disabled:opacity-50 flex items-center justify-center gap-2 text-sm"
+                        >
+                          {loading ? 'Checking verification...' : (
+                            <>OK <ArrowRight size={16} /></>
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleResendVerification}
+                          disabled={resendingVerification || resendCooldown > 0}
+                          className="w-full py-3 rounded-xl border border-slate-200 dark:border-white/10 bg-slate-50 hover:bg-slate-100 dark:bg-white/5 dark:hover:bg-white/10 text-slate-700 dark:text-white text-xs font-bold transition-all disabled:opacity-50"
+                        >
+                          {resendingVerification
+                            ? 'Sending verification email...'
+                            : resendCooldown > 0
+                              ? `Resend Verification Email (${resendCooldown}s)`
+                              : 'Resend Verification Email'}
+                        </button>
+                      </div>
                     </div>
                   ) : requiresOtp ? (
                     <div className="text-center space-y-6 py-6">
@@ -2805,7 +3174,7 @@ export default function LandingPage() {
                 </div>
 
                 {verificationSent ? (
-                  <div className="text-center space-y-6 py-10">
+                  <div className="text-center space-y-6 py-8">
                     <motion.div
                       initial={{ scale: 0 }}
                       animate={{ scale: 1 }}
@@ -2813,22 +3182,42 @@ export default function LandingPage() {
                     >
                       <CheckCircle2 size={40} className="text-emerald-500" />
                     </motion.div>
-                    <div className="space-y-4 px-4">
+                    <div className="space-y-3 px-4">
                       <h3 className="text-2xl font-black italic font-serif text-slate-900 dark:text-white">Verify Your Email</h3>
                       <p className="text-slate-500 dark:text-aura-muted text-[10px] font-bold uppercase tracking-widest leading-relaxed">
                         Your account has been created successfully.<br/>
-                        Please check your inbox or spam folder to verify your email before signing in.
+                        Please check your inbox or spam folder{email ? ` (${email.trim()})` : ''} to verify your email before signing in.
                       </p>
+                      {verificationError && (
+                        <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 text-xs font-semibold">
+                          {verificationError}
+                        </div>
+                      )}
                     </div>
-                    <button 
-                      onClick={() => { 
-                        setVerificationSent(false); 
-                        setAuthMode('signin'); 
-                      }}
-                      className="w-full py-5 bg-primary text-white font-black uppercase tracking-[0.3em] text-[10px] rounded-2xl shadow-lg shadow-primary/20 hover:scale-[1.02] transition-all flex items-center justify-center gap-2"
-                    >
-                      OK <ArrowRight size={16} />
-                    </button>
+                    <div className="space-y-3">
+                      <button 
+                        type="button"
+                        onClick={handleVerificationContinue}
+                        disabled={loading}
+                        className="w-full py-5 bg-primary text-white font-black uppercase tracking-[0.3em] text-[10px] rounded-2xl shadow-lg shadow-primary/20 hover:scale-[1.02] transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                      >
+                        {loading ? 'Checking verification...' : (
+                          <>OK <ArrowRight size={16} /></>
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleResendVerification}
+                        disabled={resendingVerification || resendCooldown > 0}
+                        className="w-full py-3.5 rounded-xl border border-slate-200 dark:border-white/10 bg-slate-50 hover:bg-slate-100 dark:bg-white/5 dark:hover:bg-white/10 text-slate-700 dark:text-white text-[10px] font-black uppercase tracking-[0.2em] transition-all disabled:opacity-50"
+                      >
+                        {resendingVerification
+                          ? 'Sending verification email...'
+                          : resendCooldown > 0
+                            ? `Resend Verification Email (${resendCooldown}s)`
+                            : 'Resend Verification Email'}
+                      </button>
+                    </div>
                   </div>
                 ) : requiresOtp ? (
                   <div className="text-center space-y-8 py-6">
