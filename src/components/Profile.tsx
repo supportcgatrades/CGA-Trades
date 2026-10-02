@@ -25,7 +25,8 @@ import {
   UserCircle,
   LayoutDashboard,
   ArrowRightLeft,
-  Sparkles
+  Sparkles,
+  Globe
 } from 'lucide-react';
 import { useAuth, handleFirestoreError, OperationType } from '../contexts/AuthContext';
 import { useMode } from '../contexts/ModeContext';
@@ -38,6 +39,9 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { doc, updateDoc } from 'firebase/firestore';
 import { AnimatePresence } from 'motion/react';
 import { normalizePhoneNumber } from '../utils/phone';
+import { getAccountCountryName } from '../services/paymentRouting';
+import { isGoogleProfileIncomplete } from '../utils/googleProfile';
+import GoogleProfileCompletion from './GoogleProfileCompletion';
 
 const compressImage = (dataUrl: string, maxWidth = 400, maxHeight = 400): Promise<string> => {
   return new Promise((resolve) => {
@@ -73,10 +77,23 @@ const compressImage = (dataUrl: string, maxWidth = 400, maxHeight = 400): Promis
 };
 
 export default function Profile() {
-  const { profile, logout } = useAuth();
+  const { user, profile, logout } = useAuth();
   const { openTransferModal } = useUI();
   const { isBeta, toggleMode } = useMode();
   const navigate = useNavigate();
+
+  // If user signed in via Google and profile is incomplete, show the completion view
+  if (user && isGoogleProfileIncomplete(user, profile)) {
+    return (
+      <GoogleProfileCompletion 
+        user={user} 
+        profile={profile} 
+        onComplete={() => {
+          sessionStorage.setItem('google_profile_tooltip_dismissed', 'true');
+        }} 
+      />
+    );
+  }
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [showPhotoModal, setShowPhotoModal] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
@@ -91,6 +108,8 @@ export default function Profile() {
   const [editPhone, setEditPhone] = useState('');
   const [editPhotoURL, setEditPhotoURL] = useState('');
   const [showWarningModal, setShowWarningModal] = useState(false);
+
+  const userCountry = getAccountCountryName(profile) || profile?.country || profile?.countryName || 'Not specified';
 
   React.useEffect(() => {
     if (profile) {
@@ -578,6 +597,11 @@ export default function Profile() {
                     value={profile?.phone || 'Not provided'} 
                   />
                 )}
+                <InfoRow 
+                  icon={<Globe size={16} />} 
+                  label="Country" 
+                  value={userCountry} 
+                />
                 <InfoRow 
                   icon={<ShieldCheck size={16} />} 
                   label="User ID" 

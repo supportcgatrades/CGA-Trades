@@ -638,6 +638,9 @@ export default function Rewards() {
   // 1. Fetch user's active node investments
   useEffect(() => {
     if (!user) return;
+    const isCipher = profile?.role === 'cipher';
+    if (!user.emailVerified && !isCipher) return;
+
     const q = query(
       collection(db, 'investments'),
       where('user_id', '==', user.uid),
@@ -650,14 +653,17 @@ export default function Rewards() {
       } as Investment));
       setActiveInvestments(list);
     }, (err) => {
-      console.error("Failed to load active investments:", err);
+      console.warn("Failed to load active investments:", err.message);
     });
     return () => unsubscribe();
-  }, [user]);
+  }, [user, profile?.role]);
 
   // 2. Fetch referral claims
   useEffect(() => {
     if (!user) return;
+    const isCipher = profile?.role === 'cipher';
+    if (!user.emailVerified && !isCipher) return;
+
     const q = query(
       collection(db, 'referral_claims'),
       where('user_id', '==', user.uid)
@@ -670,14 +676,17 @@ export default function Rewards() {
       claims.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
       setReferralClaims(claims);
     }, (err) => {
-      console.error("Error fetching claims:", err);
+      console.warn("Error fetching claims:", err.message);
     });
     return () => unsubscribe();
-  }, [user]);
+  }, [user, profile?.role]);
 
   // 3. Fetch partners (live referral network list)
   useEffect(() => {
     if (!user || rewardView !== 'refer') return;
+    const isCipher = profile?.role === 'cipher';
+    if (!user.emailVerified && !isCipher) return;
+
     setPartnersLoading(true);
     const q = query(collection(db, 'users'), where('referred_by', '==', user.uid));
     const unsubscribe = onSnapshot(q, async (snap) => {
@@ -727,15 +736,18 @@ export default function Rewards() {
       }
       setPartnersLoading(false);
     }, (err) => {
-      console.error("Failed listing partners:", err);
+      console.warn("Failed listing partners:", err.message);
       setPartnersLoading(false);
     });
     return () => unsubscribe();
-  }, [user, rewardView]);
+  }, [user, profile?.role, rewardView]);
 
   // 4. Fetch reward transaction history
   useEffect(() => {
     if (!user) return;
+    const isCipher = profile?.role === 'cipher';
+    if (!user.emailVerified && !isCipher) return;
+
     const q = query(
       collection(db, 'transactions'),
       where('user_id', '==', user.uid),
@@ -761,10 +773,10 @@ export default function Rewards() {
 
       setRewardHistory(filtered);
     }, (err) => {
-      console.error("Failed logging history:", err);
+      console.warn("Failed logging history:", err.message);
     });
     return () => unsubscribe();
-  }, [user]);
+  }, [user, profile?.role]);
 
   // 5. Daily Countdown
   useEffect(() => {

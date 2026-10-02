@@ -685,29 +685,51 @@ export default function Fund() {
               </>
             ) : (
               <>
-                {/* Non-Nigeria: Crypto Payments ONLY */}
+                {/* Non-Nigeria Option 1: Pay with Crypto */}
                 <button
                   type="button"
                   onClick={() => {
                     setDepositMethod('crypto');
                     setDepositStep('payment');
                   }}
-                  className="w-full p-4 rounded-2xl border border-white/10 bg-white/5 hover:bg-white/10 hover:border-[#009e42]/50 transition-all flex items-center justify-between cursor-pointer group text-left"
+                  className="w-full px-3.5 py-3 sm:p-4 rounded-2xl border border-white/10 bg-white/5 hover:bg-white/10 hover:border-[#009e42]/50 transition-all flex items-center justify-between gap-2 cursor-pointer group text-left"
                 >
-                  <div className="flex items-center gap-3.5">
-                    <div className="w-11 h-11 rounded-2xl bg-[#009e42]/10 border border-[#009e42]/20 flex items-center justify-center text-[#009e42] group-hover:scale-105 transition-transform">
-                      <Coins size={22} />
+                  <div className="flex items-center gap-2.5 sm:gap-3.5 min-w-0">
+                    <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl sm:rounded-2xl bg-[#009e42]/10 border border-[#009e42]/20 flex items-center justify-center text-[#009e42] group-hover:scale-105 transition-transform shrink-0">
+                      <Coins className="w-4 h-4 sm:w-5 sm:h-5" />
                     </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <p className="text-sm font-black uppercase tracking-wide text-white">Crypto Payments</p>
-                        <span className="px-2 py-0.5 rounded-full text-[8px] font-black bg-[#009e42]/20 text-[#009e42] border border-[#009e42]/30">INSTANT</span>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5 sm:gap-2">
+                        <p className="font-sans text-[11px] sm:text-xs font-bold tracking-tight text-white whitespace-nowrap leading-tight">Pay with Crypto</p>
+                        <span className="px-1.5 py-0.5 rounded-full text-[7px] sm:text-[8px] font-black uppercase tracking-wider bg-[#009e42]/20 text-[#009e42] border border-[#009e42]/30 shrink-0 leading-none">INSTANT</span>
                       </div>
-                      <p className="text-[10px] text-aura-muted font-mono mt-0.5">Bitcoin (BTC) & USDT (TRC20)</p>
+                      <p className="text-[9px] sm:text-[10px] text-aura-muted font-mono mt-0.5 whitespace-nowrap truncate">Bitcoin (BTC Native) & USDT (TRC20)</p>
                     </div>
                   </div>
-                  <ArrowRight size={16} className="text-aura-muted group-hover:text-white group-hover:translate-x-1 transition-all" />
+                  <ArrowRight size={14} className="text-aura-muted group-hover:text-white group-hover:translate-x-1 transition-all shrink-0" />
                 </button>
+
+                {/* Non-Nigeria Option 2: Request Bank Transfer Details */}
+                <a
+                  href={getWhatsAppBankTransferUrl(parseFormattedNumber(depositAmount), {
+                    profile,
+                    user,
+                    plan: 'Account Funding'
+                  })}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full px-3.5 py-3 sm:p-4 rounded-2xl border border-white/10 bg-white/5 hover:bg-white/10 hover:border-[#009e42]/50 transition-all flex items-center justify-between gap-2 cursor-pointer group text-left"
+                >
+                  <div className="flex items-center gap-2.5 sm:gap-3.5 min-w-0">
+                    <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl sm:rounded-2xl bg-[#009e42]/10 border border-[#009e42]/20 flex items-center justify-center text-[#009e42] group-hover:scale-105 transition-transform shrink-0">
+                      <Building2 className="w-4 h-4 sm:w-5 sm:h-5" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="font-sans text-[11px] sm:text-xs font-bold tracking-tight text-white whitespace-nowrap leading-tight">Request Bank Transfer Details</p>
+                    </div>
+                  </div>
+                  <ArrowRight size={14} className="text-aura-muted group-hover:text-white group-hover:translate-x-1 transition-all shrink-0" />
+                </a>
               </>
             )}
           </div>

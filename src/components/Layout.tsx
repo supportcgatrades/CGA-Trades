@@ -60,6 +60,7 @@ import { toast } from 'sonner';
 import MarketTicker from './MarketTicker';
 import Footer from './Footer';
 import WhatsAppCommunitySlider from './WhatsAppCommunitySlider';
+import { isGoogleProfileIncomplete } from '../utils/googleProfile';
 
 // --- SUB-COMPONENTS ---
 // ... (SidebarItem, SidebarSubItem, BottomNavItem remain same)
@@ -380,6 +381,47 @@ export default function Layout() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
 
+  // Incomplete Google Profile Tooltip State & Auto-Dismiss
+  const [showProfilePrompt, setShowProfilePrompt] = useState<boolean>(false);
+  const isIncompleteGoogleUser = isGoogleProfileIncomplete(user, profile);
+
+  useEffect(() => {
+    if (!isIncompleteGoogleUser) {
+      setShowProfilePrompt(false);
+      return;
+    }
+
+    const dismissed = sessionStorage.getItem('google_profile_tooltip_dismissed');
+    if (dismissed === 'true') {
+      setShowProfilePrompt(false);
+      return;
+    }
+
+    // Delay prompt slightly after reaching Home so it appears cleanly
+    const showTimer = setTimeout(() => {
+      setShowProfilePrompt(true);
+    }, 1500);
+
+    // Auto-dismiss after 12-14 seconds
+    const dismissTimer = setTimeout(() => {
+      setShowProfilePrompt(false);
+      sessionStorage.setItem('google_profile_tooltip_dismissed', 'true');
+    }, 13500);
+
+    // Auto-dismiss on scroll
+    const handleScroll = () => {
+      setShowProfilePrompt(false);
+      sessionStorage.setItem('google_profile_tooltip_dismissed', 'true');
+    };
+    window.addEventListener('scroll', handleScroll, { passive: true });
+
+    return () => {
+      clearTimeout(showTimer);
+      clearTimeout(dismissTimer);
+      window.removeEventListener('scroll', handleScroll);
+    };
+  }, [isIncompleteGoogleUser]);
+
   // Global Adverts System Hooks
   const [layoutAdverts, setLayoutAdverts] = useState<any[]>([]);
   const [activeLayoutAd, setActiveLayoutAd] = useState<any | null>(null);
@@ -507,6 +549,9 @@ export default function Layout() {
   // Listen to Firestore real-time 'referral_claims' and trigger top-right popup toast
   useEffect(() => {
     if (!user) return;
+    const isCipher = profile?.role === 'cipher';
+    if (!user.emailVerified && !isCipher) return;
+
     const q = query(
       collection(db, 'referral_claims'),
       where('user_id', '==', user.uid),
@@ -529,10 +574,10 @@ export default function Layout() {
         setShowClaimToast(null);
       }
     }, (err) => {
-      console.error("Error listening to referral claims in layout:", err);
+      console.warn("Referral claims listener in layout warning:", err.message);
     });
     return () => unsubscribe();
-  }, [user, requestPopup]);
+  }, [user, profile?.role, requestPopup]);
 
   // --- GLOBAL ADVERTS SUBSCRIPTION & OBSERVER SYSTEM ---
   useEffect(() => {
@@ -1479,6 +1524,43 @@ export default function Layout() {
         )}
       </AnimatePresence>
 
+      {/* Subtle Incomplete Google Profile Notification pointing to Me button */}
+      <AnimatePresence>
+        {showProfilePrompt && shouldShowMobileNav && (
+          <motion.div
+            initial={{ opacity: 0, y: 10, scale: 0.94 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 6, scale: 0.94 }}
+            transition={{ duration: 0.2 }}
+            onClick={() => {
+              setShowProfilePrompt(false);
+              sessionStorage.setItem('google_profile_tooltip_dismissed', 'true');
+              handleNavigation('/profile');
+            }}
+            className="fixed bottom-[74px] right-2 sm:right-6 md:right-8 z-50 flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-900/95 dark:bg-[#11141b]/95 text-white border border-[#009e42]/50 shadow-[0_8px_20px_rgba(0,158,66,0.3)] backdrop-blur-md cursor-pointer select-none"
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-[#009e42] animate-pulse shrink-0" />
+            <span className="text-[11px] font-bold text-white tracking-tight whitespace-nowrap">
+              Verify your profile
+            </span>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowProfilePrompt(false);
+                sessionStorage.setItem('google_profile_tooltip_dismissed', 'true');
+              }}
+              className="p-0.5 text-white/50 hover:text-white rounded-full transition-colors ml-0.5"
+              aria-label="Dismiss notification"
+            >
+              <X size={11} />
+            </button>
+            {/* Subtle pointer directed toward the Me button */}
+            <div className="absolute -bottom-1 right-6 w-2 h-2 rotate-45 bg-slate-900 dark:bg-[#11141b] border-r border-b border-[#009e42]/50" />
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Global Modals */}
       <TransferModal 
         isOpen={isTransferModalOpen}
@@ -1856,12 +1938,20 @@ export default function Layout() {
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.9, y: 30 }}
               transition={{ type: "spring", damping: 25, stiffness: 180 }}
-              className="relative w-full max-w-[360px] bg-gradient-to-br from-[#1b1035]/95 via-[#0b0c14]/98 to-[#20092c]/95 border-2 border-purple-500 rounded-[30px] p-6 text-center overflow-visible shadow-[0_25px_60px_rgba(168,85,247,0.3),inset_0_1px_1px_rgba(255,255,255,0.1)] select-none"
+              className={cn(
+                "relative w-full max-w-[360px] rounded-[30px] p-6 text-center overflow-visible select-none transition-all duration-300",
+                isDark
+                  ? "bg-gradient-to-br from-[#1b1035]/95 via-[#0b0c14]/98 to-[#20092c]/95 border-2 border-purple-500 shadow-[0_25px_60px_rgba(168,85,247,0.3),inset_0_1px_1px_rgba(255,255,255,0.1)]"
+                  : "bg-white border border-slate-200/90 shadow-2xl shadow-purple-900/10"
+              )}
             >
               {/* Premium Top-Left Brand Logo inside Popup */}
               <div className="absolute top-5 left-6 flex items-center gap-1.5 pointer-events-none select-none">
                 <img src="https://i.imgur.com/nRbbYnS.png" alt="CGA Logo" className="h-4.5 w-auto object-contain brightness-110" />
-                <span className="text-[10px] font-serif font-black tracking-tighter uppercase italic leading-none text-white/90">CGA</span>
+                <span className={cn(
+                  "text-[10px] font-serif font-black tracking-tighter uppercase italic leading-none",
+                  isDark ? "text-white/90" : "text-slate-800"
+                )}>CGA</span>
               </div>
 
               {/* Overlapping top realistic 3D box plus animated floaters extending outside boundaries */}
@@ -1956,42 +2046,69 @@ export default function Layout() {
               {/* Close button with soft transition */}
               <button 
                 onClick={() => closePopup('referral-invite')}
-                className="absolute top-4 right-4 text-white/50 hover:text-white transition-all p-1.5 bg-white/5 hover:bg-white/10 rounded-full cursor-pointer hover:rotate-90 duration-300"
+                className={cn(
+                  "absolute top-4 right-4 transition-all p-1.5 rounded-full cursor-pointer hover:rotate-90 duration-300",
+                  isDark 
+                    ? "text-white/50 hover:text-white bg-white/5 hover:bg-white/10" 
+                    : "text-slate-400 hover:text-slate-700 bg-slate-100 hover:bg-slate-200"
+                )}
               >
                 <X size={14} />
               </button>
 
               <div className="mt-11 space-y-3.5">
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 bg-purple-500/10 border border-purple-500/15 rounded-full text-[8px] font-bold text-purple-300 uppercase tracking-widest leading-none">
-                  <Gift size={9} className="text-purple-400" /> Executive Program
+                <span className={cn(
+                  "inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[8px] font-bold uppercase tracking-widest leading-none",
+                  isDark 
+                    ? "bg-purple-500/10 border border-purple-500/15 text-purple-300" 
+                    : "bg-purple-50 border border-purple-200 text-purple-700"
+                )}>
+                  <Gift size={9} className={isDark ? "text-purple-400" : "text-purple-600"} /> Executive Program
                 </span>
                 
-                <h3 className="text-lg font-black text-white uppercase tracking-wide">
+                <h3 className={cn(
+                  "text-lg font-black uppercase tracking-wide",
+                  isDark ? "text-white" : "text-slate-900"
+                )}>
                   Share CGA
                 </h3>
                 
-                <p className="text-[11px] text-white/60 leading-relaxed max-w-xs mx-auto">
-                  Expand your quantum networking tier. Refer partners and both will receive a premium <span className="text-purple-400 font-extrabold">5% bonus</span> on their first active investment node!
+                <p className={cn(
+                  "text-[11px] leading-relaxed max-w-xs mx-auto",
+                  isDark ? "text-white/60" : "text-slate-600"
+                )}>
+                  Expand your quantum networking tier. Refer partners and both will receive a premium <span className={cn("font-extrabold", isDark ? "text-purple-400" : "text-purple-600")}>5% bonus</span> on their first active investment node!
                 </p>
 
                 {/* Referral Details Glass Box */}
-                <div className="p-3 bg-white/[0.03] border border-white/5 rounded-2xl text-left space-y-2 mt-2">
+                <div className={cn(
+                  "p-3 rounded-2xl text-left space-y-2 mt-2 border",
+                  isDark ? "bg-white/[0.03] border-white/5" : "bg-slate-50 border-slate-200/80"
+                )}>
                   <div className="flex items-center justify-between">
-                    <span className="text-[9px] font-bold uppercase text-white/40 tracking-wider">Referral Code</span>
-                    <span className="text-xs font-black text-white tracking-widest">{profile?.referral_code || '---'}</span>
+                    <span className={cn("text-[9px] font-bold uppercase tracking-wider", isDark ? "text-white/40" : "text-slate-500")}>Referral Code</span>
+                    <span className={cn("text-xs font-black tracking-widest", isDark ? "text-white" : "text-slate-900")}>{profile?.referral_code || '---'}</span>
                   </div>
-                  <div className="h-px bg-white/5" />
+                  <div className={cn("h-px", isDark ? "bg-white/5" : "bg-slate-200")} />
                   <div className="flex flex-col gap-1">
-                    <span className="text-[9px] font-bold uppercase text-white/40 tracking-wider">Invitation Link</span>
-                    <div className="flex items-center gap-2 bg-black/40 border border-white/5 rounded-xl p-1.5 pl-2.5">
-                      <span className="text-[9px] font-medium text-white/50 truncate flex-1">
+                    <span className={cn("text-[9px] font-bold uppercase tracking-wider", isDark ? "text-white/40" : "text-slate-500")}>Invitation Link</span>
+                    <div className={cn(
+                      "flex items-center gap-2 border rounded-xl p-1.5 pl-2.5",
+                      isDark ? "bg-black/40 border-white/5" : "bg-white border-slate-200"
+                    )}>
+                      <span className={cn("text-[9px] font-medium truncate flex-1", isDark ? "text-white/50" : "text-slate-600")}>
                         {profile?.referral_code ? `${window.location.origin}/signup?ref=${profile.referral_code}` : `${window.location.origin}/signup`}
                       </span>
                       <button 
                         onClick={handleCopyLink}
-                        className="p-1.5 rounded-lg bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 hover:text-purple-300 transition-colors cursor-pointer"
+                        className={cn(
+                          "p-1.5 rounded-lg transition-colors cursor-pointer",
+                          isDark 
+                            ? "bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 hover:text-purple-300" 
+                            : "bg-purple-100 hover:bg-purple-200 text-purple-700"
+                        )}
                       >
-                        {copiedLink ? <CheckCircle2 size={12} className="text-emerald-400" /> : <Copy size={12} />}
+                        {copiedLink ? <CheckCircle2 size={12} className="text-emerald-500" /> : <Copy size={12} />}
                       </button>
                     </div>
                   </div>
@@ -1999,7 +2116,10 @@ export default function Layout() {
 
                 {/* Modernized Luxury Share Grid */}
                 <div className="mt-4">
-                  <p className="text-[8px] font-bold uppercase text-white/40 tracking-widest mb-2.5">Instant Share Options</p>
+                  <p className={cn(
+                    "text-[8px] font-bold uppercase tracking-widest mb-2.5",
+                    isDark ? "text-white/40" : "text-slate-500"
+                  )}>Instant Share Options</p>
                   <div className="grid grid-cols-3 gap-2.5">
                     {/* Official WhatsApp style green gradient button */}
                     <a 

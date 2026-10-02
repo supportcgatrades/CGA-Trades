@@ -23,7 +23,7 @@ import {
   serverTimestamp,
   addDoc 
 } from 'firebase/firestore';
-import { auth, db, googleProvider } from '../lib/firebase';
+import { auth, db, googleProvider, queryEmailsByPhonesRest, fetchUserDocRest, upsertUserDocRest } from '../lib/firebase';
 import { 
   getDeviceFingerprint, 
   checkDeviceStatus, 
@@ -999,7 +999,14 @@ export default function LandingPage() {
           last_rebook: new Date().toISOString()
         };
 
-        await withOperationTimeout(setDoc(userDocRef, newUserProfile), 6000, "Profile write timeout");
+        try {
+          await withOperationTimeout(setDoc(userDocRef, newUserProfile), 4000, "Profile write timeout");
+        } catch (sdkWriteErr) {
+          console.warn("SDK profile write slow, using stateless REST fallback:", sdkWriteErr);
+          const token = await firebaseUser.getIdToken().catch(() => undefined);
+          const restOk = await upsertUserDocRest(uid, newUserProfile, token, 5000);
+          if (!restOk) throw sdkWriteErr;
+        }
 
         void broadcastActivity(
           newUserProfile.name || "New Partner",
@@ -1102,7 +1109,7 @@ export default function LandingPage() {
       startResendCooldown(60);
       toast.success("Verification email resent! Please check your inbox or spam folder.");
     } catch (err: any) {
-      console.error("Resend verification error:", err);
+      console.warn("Resend verification notice:", err);
       const friendlyMsg = getFriendlyVerificationErrorMessage(err);
       setVerificationError(friendlyMsg);
       if (err?.code === 'auth/too-many-requests' || err?.code === 'auth/quota-exceeded') {
@@ -1294,7 +1301,7 @@ export default function LandingPage() {
         startResendCooldown(60);
         toast.success("Verification email sent!");
       } catch (verifyError: any) {
-        console.error("Initial verification email send error:", verifyError);
+        console.warn("Initial verification email send notice:", verifyError);
         const friendlyVerifyErr = getFriendlyVerificationErrorMessage(verifyError);
         setVerificationError(friendlyVerifyErr);
         setResendCooldown(0);
@@ -1302,12 +1309,90 @@ export default function LandingPage() {
         toast.error(friendlyVerifyErr);
       }
     } catch (error: any) {
-      console.error("Signup error:", error);
+      if (error?.code === 'auth/email-already-in-use') {
+        setSigninPhone(phone || cleanEmail);
+        setSigninPassword(password);
+
+        // Attempt seamless recovery if the user is retrying signup with their same password
+        try {
+          const existingCred = await withOperationTimeout(
+            signInWithEmailAndPassword(auth, cleanEmail, password),
+            10000,
+            "Sign-in check timeout"
+          );
+          let existingUser = existingCred.user;
+
+          const pendingData = {
+            fullName: cleanFullName,
+            username: cleanUsername,
+            phone: normalizedPhone,
+            referralCode: referralCode.trim().toUpperCase(),
+            email: cleanEmail,
+            country: countryContext.countryName,
+            countryName: countryContext.countryName,
+            country_code: countryContext.countryCode,
+            countryCode: countryContext.countryCode,
+            country_flag: countryContext.countryFlag,
+            countryFlag: countryContext.countryFlag,
+            timestamp: new Date().toISOString()
+          };
+
+          try {
+            localStorage.setItem(`pending_signup_${existingUser.uid}`, JSON.stringify(pendingData));
+            cachePhoneEmailMapping(normalizedPhone, cleanEmail);
+          } catch (e) {}
+
+          void ensureSignupProfileCreated(existingUser, pendingData);
+
+          if (!existingUser.emailVerified) {
+            try {
+              await withOperationTimeout(existingUser.reload(), 4000, "Reload timeout");
+              existingUser = auth.currentUser || existingUser;
+            } catch (e) {}
+          }
+
+          const isCipherUser =
+            existingUser.email === 'support@tavariwave.network' ||
+            existingUser.email === 'contact.cga.usa@gmail.com' ||
+            existingUser.uid === '3yV3rfcUzob5v9ltfVcMw0PL6tQ2';
+
+          if (existingUser.emailVerified || isCipherUser) {
+            void syncAuthSession(existingUser);
+            toast.success("Welcome back! Signing you into your account.");
+            navigate(isCipherUser ? '/cipher' : '/home', { replace: true, state: { verified: true } });
+            return;
+          }
+
+          // Existing account is still unverified -> send verification email and show verification screen
+          pendingVerificationUserRef.current = existingUser;
+          setPendingVerificationUser(existingUser);
+          try {
+            await withOperationTimeout(
+              sendEmailVerification(existingUser),
+              15000,
+              "Unable to send verification email right now."
+            );
+            setVerificationError(null);
+            startResendCooldown(60);
+            toast.success("Verification email sent! Please check your inbox or spam folder.");
+          } catch (resendErr: any) {
+            const friendlyVerifyErr = getFriendlyVerificationErrorMessage(resendErr);
+            setVerificationError(friendlyVerifyErr);
+            setResendCooldown(0);
+          }
+          setVerificationSent(true);
+          return;
+        } catch (signInCheckErr) {
+          // Password belongs to an existing account with different credentials -> switch cleanly to Sign In
+          setAuthMode('signin');
+          toast.info("An account with this email already exists. Please sign in.");
+          return;
+        }
+      }
+
+      console.warn("Signup notice:", error);
       const friendlyMsg = getFriendlySignupErrorMessage(error);
       toast.error(friendlyMsg);
-      if (error?.code === 'auth/email-already-in-use') {
-        setSigninPhone(phone);
-      }
     } finally {
       isSubmittingAuthRef.current = false;
       setLoading(false);
@@ -1333,6 +1418,8 @@ export default function LandingPage() {
     try {
       let resolvedEmail = '';
       let candidateEmails: string[] = [];
+      let userCredential = null;
+      let lastAuthErr: any = null;
 
       if (trimmedInput.includes('@')) {
         resolvedEmail = trimmedInput.toLowerCase();
@@ -1343,12 +1430,12 @@ export default function LandingPage() {
         prioritySet.add(trimmedInput);
         const digitsOnly = trimmedInput.replace(/\D/g, '');
         if (digitsOnly) {
-          prioritySet.add(digitsOnly);
           prioritySet.add(`+${digitsOnly}`);
+          prioritySet.add(digitsOnly);
           const withoutZero = digitsOnly.replace(/^0+/, '');
           if (withoutZero) {
-            prioritySet.add(withoutZero);
             prioritySet.add(`0${withoutZero}`);
+            prioritySet.add(withoutZero);
           }
         }
 
@@ -1366,10 +1453,8 @@ export default function LandingPage() {
 
         const allCandidates = Array.from(prioritySet).filter(Boolean);
 
-        // 1. Check fast local cache first (0ms) so login never fails if Firestore is slow
+        // 1. Check fast local cache first (0ms) and attempt immediate sign-in before any network lookup
         const cachedEmail = lookupCachedEmailByPhone(allCandidates);
-
-        // Also check if current session's pending signup matches
         let sessionPendingEmail: string | null = null;
         try {
           if (auth.currentUser?.uid) {
@@ -1383,81 +1468,109 @@ export default function LandingPage() {
           }
         } catch (e) {}
 
-        // 2. Query Firestore users collection across chunks in parallel with a short timeout
-        const usersRef = collection(db, 'users');
-        const chunks: string[][] = [];
-        for (let i = 0; i < allCandidates.length; i += 30) {
-          chunks.push(allCandidates.slice(i, i + 30));
-        }
-
-        try {
-          const snaps = await withOperationTimeout(
-            Promise.all(chunks.map((chunk) => getDocs(query(usersRef, where('phone', 'in', chunk))))),
-            6000,
-            "Network timeout while looking up account. Please check your connection and try again."
-          );
-
-          const matchedDocs = snaps.flatMap((s) => s.docs);
-          if (matchedDocs.length > 0) {
-            const sortedDocs = [...matchedDocs].sort((a, b) => {
-              const aData = a.data();
-              const bData = b.data();
-              const aVerified = aData.email_verified === true ? 1 : 0;
-              const bVerified = bData.email_verified === true ? 1 : 0;
-              if (aVerified !== bVerified) return bVerified - aVerified;
-              const aTime = aData.created_at ? new Date(aData.created_at).getTime() : 0;
-              const bTime = bData.created_at ? new Date(bData.created_at).getTime() : 0;
-              return bTime - aTime;
-            });
-            candidateEmails = Array.from(
-              new Set(sortedDocs.map((d) => String(d.data().email || '').trim().toLowerCase()).filter(Boolean))
+        const fastCachedEmails = Array.from(new Set([sessionPendingEmail, cachedEmail].filter(Boolean) as string[]));
+        for (const fastEmail of fastCachedEmails) {
+          try {
+            userCredential = await withOperationTimeout(
+              signInWithEmailAndPassword(auth, fastEmail, signinPassword),
+              8000,
+              "Network timeout while signing in."
             );
+            resolvedEmail = fastEmail;
+            break;
+          } catch (fastAuthErr: any) {
+            lastAuthErr = fastAuthErr;
           }
-        } catch (lookupErr: any) {
-          console.warn("Phone lookup query warning:", lookupErr);
-          if (!cachedEmail && !sessionPendingEmail) {
-            throw lookupErr;
+        }
+
+        // 2. If not resolved via instant cache, race Stateless Firestore REST API against Client SDK getDocs
+        if (!userCredential) {
+          const sdkLookupPromise = (async (): Promise<string[]> => {
+            try {
+              const usersRef = collection(db, 'users');
+              const chunks: string[][] = [];
+              for (let i = 0; i < allCandidates.length; i += 30) {
+                chunks.push(allCandidates.slice(i, i + 30));
+              }
+              const snaps = await withOperationTimeout(
+                Promise.all(chunks.map((chunk) => getDocs(query(usersRef, where('phone', 'in', chunk))))),
+                4000,
+                "SDK phone lookup timeout"
+              );
+              const matchedDocs = snaps.flatMap((s) => s.docs);
+              if (matchedDocs.length === 0) return [];
+              const sortedDocs = [...matchedDocs].sort((a, b) => {
+                const aData = a.data();
+                const bData = b.data();
+                const aVerified = aData.email_verified === true ? 1 : 0;
+                const bVerified = bData.email_verified === true ? 1 : 0;
+                if (aVerified !== bVerified) return bVerified - aVerified;
+                const aTime = aData.created_at ? new Date(aData.created_at).getTime() : 0;
+                const bTime = bData.created_at ? new Date(bData.created_at).getTime() : 0;
+                return bTime - aTime;
+              });
+              return Array.from(
+                new Set(sortedDocs.map((d) => String(d.data().email || '').trim().toLowerCase()).filter(Boolean))
+              );
+            } catch {
+              return [];
+            }
+          })();
+
+          const restLookupPromise = queryEmailsByPhonesRest(allCandidates, 4500);
+
+          const lookedUpEmails = await new Promise<string[]>((resolve) => {
+            let pending = 2;
+            let settled = false;
+            const handleResult = (emails: string[]) => {
+              if (!settled && emails.length > 0) {
+                settled = true;
+                resolve(emails);
+              } else {
+                pending -= 1;
+                if (!settled && pending <= 0) {
+                  settled = true;
+                  resolve([]);
+                }
+              }
+            };
+            restLookupPromise.then(handleResult).catch(() => handleResult([]));
+            sdkLookupPromise.then(handleResult).catch(() => handleResult([]));
+          });
+
+          candidateEmails = lookedUpEmails.filter((em) => !fastCachedEmails.includes(em));
+          resolvedEmail = candidateEmails[0] || fastCachedEmails[0] || '';
+
+          if (!resolvedEmail) {
+            toast.error("No account found with this phone number. Please check your phone number or sign up.");
+            return;
           }
-        }
-
-        if (sessionPendingEmail && !candidateEmails.includes(sessionPendingEmail)) {
-          candidateEmails.push(sessionPendingEmail);
-        }
-        if (cachedEmail && !candidateEmails.includes(cachedEmail)) {
-          candidateEmails.push(cachedEmail);
-        }
-
-        resolvedEmail = candidateEmails[0] || '';
-
-        if (!resolvedEmail) {
-          toast.error("No account found with this phone number. Please check your phone number or sign up.");
-          return;
         }
       }
 
-      // STEP 1: Authenticate user in Firebase Auth (trying candidate emails if multiple exist)
-      let userCredential = null;
-      let lastAuthErr: any = null;
-      const emailsToTry = candidateEmails.length > 0 ? candidateEmails : [resolvedEmail];
-
-      for (const emailCandidate of emailsToTry) {
-        try {
-          userCredential = await withOperationTimeout(
-            signInWithEmailAndPassword(auth, emailCandidate, signinPassword),
-            12000,
-            "Network timeout while signing in. Please check your connection and try again."
-          );
-          resolvedEmail = emailCandidate;
-          break;
-        } catch (authErr: any) {
-          lastAuthErr = authErr;
-          if (
-            authErr?.code !== 'auth/invalid-credential' &&
-            authErr?.code !== 'auth/wrong-password' &&
-            authErr?.code !== 'auth/user-not-found' &&
-            authErr?.code !== 'auth/invalid-email'
-          ) {
-            throw authErr;
+      // STEP 1: Authenticate user in Firebase Auth if not already authenticated via fast-path
+      if (!userCredential) {
+        const emailsToTry = (candidateEmails.length > 0 ? candidateEmails : [resolvedEmail]).slice(0, 3);
+        for (const emailCandidate of emailsToTry) {
+          if (!emailCandidate) continue;
+          try {
+            userCredential = await withOperationTimeout(
+              signInWithEmailAndPassword(auth, emailCandidate, signinPassword),
+              10000,
+              "Network timeout while signing in. Please check your connection and try again."
+            );
+            resolvedEmail = emailCandidate;
+            break;
+          } catch (authErr: any) {
+            lastAuthErr = authErr;
+            if (
+              authErr?.code !== 'auth/invalid-credential' &&
+              authErr?.code !== 'auth/wrong-password' &&
+              authErr?.code !== 'auth/user-not-found' &&
+              authErr?.code !== 'auth/invalid-email'
+            ) {
+              throw authErr;
+            }
           }
         }
       }
@@ -1475,20 +1588,19 @@ export default function LandingPage() {
         if (canonicalInputPhone) {
           cachePhoneEmailMapping(canonicalInputPhone, resolvedEmail);
         }
+        cachePhoneEmailMapping(trimmedInput, resolvedEmail);
       }
 
-      const isCipherUser = firebaseUser.email === 'support@tavariwave.network' || 
-                       firebaseUser.email === 'contact.cga.usa@gmail.com' || 
-                       firebaseUser.uid === '3yV3rfcUzob5v9ltfVcMw0PL6tQ2';
+      const isCipherUser =
+        firebaseUser.email === 'support@tavariwave.network' ||
+        firebaseUser.email === 'contact.cga.usa@gmail.com' ||
+        firebaseUser.uid === '3yV3rfcUzob5v9ltfVcMw0PL6tQ2';
 
       // STEP 2: Only reload if emailVerified is currently false (in case user just verified in another tab)
       if (!firebaseUser.emailVerified && !isCipherUser) {
         try {
-          await withOperationTimeout(firebaseUser.reload(), 4000, "Reload timeout");
+          await withOperationTimeout(firebaseUser.reload(), 2500, "Reload timeout");
           firebaseUser = auth.currentUser || firebaseUser;
-          if (firebaseUser.emailVerified) {
-            await withOperationTimeout(firebaseUser.getIdToken(true), 4000, "Token refresh timeout").catch(() => {});
-          }
         } catch (reloadErr) {
           console.warn("Reload warning during sign-in:", reloadErr);
         }
@@ -1504,69 +1616,47 @@ export default function LandingPage() {
         return;
       }
 
-      // STEP 3: Fast, strictly-bounded profile check (never blocks login if Firestore is slow)
+      // STEP 3: Trust current device locally and run profile/audit sync completely in the background
       const deviceId = getDeviceFingerprint();
       const trustedDevicesKey = `trusted_devices_${firebaseUser.uid}`;
-      let trustedDevices: string[] = [];
       try {
-        trustedDevices = JSON.parse(localStorage.getItem(trustedDevicesKey) || '[]');
-      } catch (e) {}
-      const isNewDevice = !trustedDevices.includes(deviceId);
-
-      let userDoc = null;
-      try {
-        userDoc = await withOperationTimeout(
-          getDoc(doc(db, 'users', firebaseUser.uid)),
-          2500,
-          "Profile fetch timeout"
-        );
-      } catch (err: any) {
-        console.warn("Non-blocking profile check warning in handleSignin:", err);
-      }
-
-      if (userDoc?.exists()) {
-        const profileData = userDoc.data();
-        if (profileData?.email_verified !== true) {
-          updateDoc(doc(db, 'users', firebaseUser.uid), { email_verified: true }).catch(() => {});
-        }
-        if (profileData?.phone) {
-          const canonicalPhone = normalizePhoneNumber(profileData.phone, profileData.countryCode || selectedCountry?.countryCode);
-          if (canonicalPhone) {
-            cachePhoneEmailMapping(canonicalPhone, resolvedEmail || firebaseUser.email || '');
-            if (profileData.phone !== canonicalPhone) {
-              updateDoc(doc(db, 'users', firebaseUser.uid), { phone: canonicalPhone }).catch(() => {});
-            }
-          }
-        }
-
-        // STEP 4: Device Fingerprint & Security Verification (if user configured a Transaction PIN)
-        const userPin = profileData?.transfer_pin;
-        if (isNewDevice && userPin && !isCipherUser) {
-          setTempUser(firebaseUser);
-          setRequiresOtp(true);
-          toast.info("New device detected. Verification required.");
-          logAudit(firebaseUser.uid, 'mfa_triggered_pin', { deviceId }).catch(() => {});
-          return;
-        }
-      } else {
-        // STEP 5: Ensure user profile exists in the background without blocking login navigation
-        void ensureSignupProfileCreated(firebaseUser);
-      }
-
-      // Register device and store locally as trusted
-      try {
+        const trustedDevices: string[] = JSON.parse(localStorage.getItem(trustedDevicesKey) || '[]');
         if (!trustedDevices.includes(deviceId)) {
           trustedDevices.push(deviceId);
           localStorage.setItem(trustedDevicesKey, JSON.stringify(trustedDevices));
         }
       } catch (e) {}
 
-      // Register in Firestore silently in background
+      // Background profile verification & healing (NEVER blocks login navigation)
+      void (async () => {
+        try {
+          const token = await firebaseUser.getIdToken().catch(() => undefined);
+          const restDoc = await fetchUserDocRest(firebaseUser.uid, token, 3000);
+          if (restDoc) {
+            if (restDoc.email_verified !== true) {
+              updateDoc(doc(db, 'users', firebaseUser.uid), { email_verified: true }).catch(() => {});
+            }
+            if (restDoc.phone) {
+              const canonicalPhone = normalizePhoneNumber(restDoc.phone, restDoc.countryCode || selectedCountry?.countryCode);
+              if (canonicalPhone) {
+                cachePhoneEmailMapping(canonicalPhone, resolvedEmail || firebaseUser.email || '');
+              }
+            }
+          } else {
+            await ensureSignupProfileCreated(firebaseUser);
+          }
+        } catch {
+          void ensureSignupProfileCreated(firebaseUser);
+        }
+      })();
+
       registerDevice(firebaseUser.uid, deviceId).catch(() => {});
       logAudit(firebaseUser.uid, 'login_success').catch(() => {});
 
-      // Sync authenticated user into AuthContext immediately and navigate to Home
+      // STEP 4: Immediately load authenticated user into AuthContext and navigate to Home page
       void syncAuthSession(firebaseUser);
+      isSubmittingAuthRef.current = false;
+      setLoading(false);
 
       if (isCipherUser) {
         toast.success("Cipher Terminal Accessed");
@@ -1576,7 +1666,7 @@ export default function LandingPage() {
         navigate('/home', { replace: true, state: { verified: true } });
       }
     } catch (error: any) {
-      console.error("Sign-in process error:", error);
+      console.warn("Sign-in process notice:", error);
       if (
         error?.code === 'auth/invalid-credential' ||
         error?.code === 'auth/wrong-password' ||
@@ -1614,7 +1704,7 @@ export default function LandingPage() {
           storedPin = userDoc.data().transfer_pin || null;
         }
       } catch (err) {
-        console.error("Failed fetching PIN on device verify:", err);
+        console.warn("Failed fetching PIN on device verify:", err);
       }
 
       if (!storedPin) {
@@ -1710,11 +1800,83 @@ export default function LandingPage() {
         return;
       }
 
-      if (!userDoc || !userDoc.exists() || !userDoc.data()?.phone) {
-        // If user is signing up with Google and lacks phone/password setup:
-        setGoogleSetupUser(user);
-        setIsGoogleSetupOpen(true);
-        return;
+      if (!userDoc || !userDoc.exists()) {
+        // Create initial Google user profile immediately so user can enter Home without blocking
+        const nowIso = new Date().toISOString();
+        const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+        let randCode = 'CGA-';
+        for (let i = 0; i < 5; i++) {
+          randCode += chars.charAt(Math.floor(Math.random() * chars.length));
+        }
+        const userRefCode = isCipher ? 'CIPHER' : randCode;
+        const publicId = `CGA${Math.floor(100000 + Math.random() * 900000)}`;
+
+        let referrerId: string | null = null;
+        let referrerCodeValue: string | null = null;
+        if (referralCode?.trim()) {
+          const cleanRef = referralCode.trim().toUpperCase();
+          try {
+            const snap = await getDocs(query(collection(db, 'users'), where('referral_code', '==', cleanRef)));
+            if (!snap.empty) {
+              referrerId = snap.docs[0].id;
+              referrerCodeValue = cleanRef;
+              updateDoc(doc(db, 'users', referrerId), {
+                referrals_count: increment(1)
+              }).catch(() => {});
+            }
+          } catch (e) {}
+        }
+
+        const initialGoogleProfile = {
+          uid: user.uid,
+          name: isCipher ? 'Cipher' : (user.displayName || user.email?.split('@')[0] || 'Nexus User'),
+          username: isCipher ? 'cipher_root' : (user.email?.split('@')[0] || 'user').toLowerCase().replace(/[^a-z0-9_]/g, ''),
+          email: user.email || '',
+          phone: '',
+          country: '',
+          countryName: '',
+          country_code: '',
+          countryCode: '',
+          country_flag: '',
+          countryFlag: '',
+          public_id: publicId,
+          referral_code: userRefCode,
+          referral_link: `${window.location.origin}/signup?ref=${userRefCode}`,
+          referred_by: referrerId,
+          referrer_uid: referrerId,
+          referrer_code: referrerCodeValue,
+          referrals_count: 0,
+          active_referrals: 0,
+          referral_earnings: 0,
+          role: isCipher ? 'cipher' : 'user',
+          funding_balance: 0,
+          available_balance: 0,
+          total_earnings: 0,
+          total_invested: 10,
+          email_verified: true,
+          profile_completed: false,
+          is_google_user: true,
+          created_at: nowIso,
+          roi_cycle_start: nowIso,
+          last_rebook: nowIso
+        };
+
+        try {
+          await setDoc(doc(db, 'users', user.uid), initialGoogleProfile, { merge: true });
+        } catch {
+          const token = await user.getIdToken().catch(() => undefined);
+          await upsertUserDocRest(user.uid, initialGoogleProfile, token, 4000);
+        }
+
+        const txId = `signup-bonus-${user.uid}`;
+        setDoc(doc(db, 'transactions', txId), {
+          user_id: user.uid,
+          type: 'signup_bonus',
+          amount: 10,
+          created_at: nowIso,
+          status: 'approved',
+          description: "Congratulations, you have just received a $10 signup bonus into your assets balance."
+        }).catch(() => {});
       }
 
       // Register device and store locally as trusted

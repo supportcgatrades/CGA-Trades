@@ -314,18 +314,22 @@ export function getWhatsAppBankTransferUrl(
   const investmentPlan = String(
     details?.planName
       ? formatInvestmentPlanName(details.planName)
-      : formatInvestmentPlanName(details?.plan)
-  ).trim();
+      : details?.plan
+      ? formatInvestmentPlanName(details?.plan)
+      : 'Account Funding'
+  ).trim() || 'Account Funding';
 
   const message = [
-    `Hi, my name is ${fullName} (@${rawUsername}).`,
-    `I am contacting you from ${country}.`,
-    `Public User ID: ${publicUserId}`,
+    `Hi, my name is ${fullName}.`,
+    `Username: @${rawUsername}`,
+    `Country: ${country}`,
+    `User ID: ${publicUserId}`,
     `Investment Plan: ${investmentPlan}`,
     `Investment Amount: $${formattedAmount}`,
-    `Kindly provide me with the bank details to settle this payment.`,
+    '',
+    `Kindly provide me with the official and dedicated bank details to settle this payment.`,
     `Thank you.`
-  ].join('\n\n');
+  ].join('\n');
 
   return `https://wa.me/${WHATSAPP_BANK_REQUEST_NUMBER_CLEAN}?text=${encodeURIComponent(message)}`;
 }

@@ -19,7 +19,7 @@ import {
   serverTimestamp,
   runTransaction
 } from 'firebase/firestore';
-import { auth, db } from '../lib/firebase';
+import { auth, db, fetchUserDocRest, upsertUserDocRest } from '../lib/firebase';
 import { getRoiByAmount, isWeekendROI } from '../lib/utils';
 
 export const CIPHER_ADMIN_EMAILS = [
@@ -297,6 +297,123 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const isProcessingRoiRef = useRef(false);
   const lastProcessedCycleRef = useRef<string | null>(null);
+  const bootstrappedProfilesRef = useRef<Set<string>>(new Set());
+
+  const bootstrapMissingProfile = useCallback(async (targetUser: FirebaseUser) => {
+    const uid = targetUser.uid;
+    if (!uid || bootstrappedProfilesRef.current.has(uid)) return;
+    bootstrappedProfilesRef.current.add(uid);
+
+    try {
+      let pendingData: any = null;
+      try {
+        const rawPending = localStorage.getItem(`pending_signup_${uid}`);
+        if (rawPending) pendingData = JSON.parse(rawPending);
+      } catch {}
+
+      const resolvedEmail = (pendingData?.email || targetUser.email || '').trim().toLowerCase();
+      let recoveredPhone = pendingData?.phone || '';
+      if (!recoveredPhone && resolvedEmail) {
+        try {
+          const rawPhoneCache = localStorage.getItem('cga_phone_email_cache_v1');
+          if (rawPhoneCache) {
+            const parsedCache = JSON.parse(rawPhoneCache) as Record<string, string>;
+            const matchedPhones = Object.entries(parsedCache)
+              .filter(([, em]) => String(em || '').trim().toLowerCase() === resolvedEmail)
+              .map(([ph]) => ph);
+            recoveredPhone = matchedPhones.find((p) => p.startsWith('+')) || matchedPhones[0] || '';
+          }
+        } catch {}
+      }
+
+      let storedCountry: any = null;
+      try {
+        const rawCountry = localStorage.getItem('selected_country');
+        if (rawCountry) storedCountry = JSON.parse(rawCountry);
+      } catch {}
+
+      const countryName = pendingData?.country || pendingData?.countryName || storedCountry?.countryName || 'Nigeria';
+      const countryCode = pendingData?.country_code || pendingData?.countryCode || storedCountry?.countryCode || 'NG';
+      const countryFlag = pendingData?.country_flag || pendingData?.countryFlag || storedCountry?.countryFlag || '🇳🇬';
+
+      const isCipher = isCipherAdmin(targetUser);
+      const isGoogle = targetUser.providerData?.some(p => p.providerId === 'google.com');
+      const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+      let randCode = 'CGA-';
+      for (let i = 0; i < 5; i++) {
+        randCode += chars.charAt(Math.floor(Math.random() * chars.length));
+      }
+      const userRefCode = isCipher ? 'CIPHER' : (pendingData?.userRefCode || randCode);
+      const publicId = pendingData?.public_id || `CGA${Math.floor(100000 + Math.random() * 900000)}`;
+      const nowIso = new Date().toISOString();
+
+      const healedProfile: UserProfile = {
+        uid,
+        name: isCipher ? 'Cipher' : (pendingData?.fullName || targetUser.displayName || resolvedEmail.split('@')[0] || 'Nexus User'),
+        username: isCipher ? 'cipher_root' : (pendingData?.username || resolvedEmail.split('@')[0]?.toLowerCase() || 'user'),
+        email: resolvedEmail,
+        phone: recoveredPhone,
+        country: countryName,
+        countryName,
+        country_code: countryCode,
+        countryCode,
+        country_flag: countryFlag,
+        countryFlag,
+        public_id: publicId,
+        referral_code: userRefCode,
+        referral_link: `${window.location.origin}/signup?ref=${userRefCode}`,
+        referred_by: null,
+        referrer_uid: null,
+        referrer_code: null,
+        referrals_count: 0,
+        active_referrals: 0,
+        referral_earnings: 0,
+        role: isCipher ? 'cipher' : 'user',
+        funding_balance: 0,
+        available_balance: 0,
+        total_earnings: 0,
+        total_invested: 10,
+        email_verified: Boolean(targetUser.emailVerified || isCipher),
+        profile_completed: isGoogle ? Boolean(recoveredPhone && recoveredPhone.length >= 5) : true,
+        is_google_user: Boolean(isGoogle),
+        suspended: false,
+        banned: false,
+        roi_disabled: false,
+        withdrawals_frozen: false,
+        transfers_frozen: false,
+        created_at: nowIso,
+        roi_cycle_start: nowIso,
+        last_rebook: nowIso
+      };
+
+      setProfile((prev) => prev || healedProfile);
+
+      const userDocRef = doc(db, 'users', uid);
+      try {
+        await setDoc(userDocRef, healedProfile, { merge: true });
+      } catch {
+        const token = await targetUser.getIdToken().catch(() => undefined);
+        await upsertUserDocRest(uid, healedProfile, token, 5000);
+      }
+
+      const txId = `signup-bonus-${uid}`;
+      setDoc(doc(db, 'transactions', txId), {
+        user_id: uid,
+        type: 'signup_bonus',
+        amount: 10,
+        created_at: nowIso,
+        status: 'approved',
+        description: "Congratulations, you have just received a $10 signup bonus into your assets balance."
+      }).catch(() => {});
+
+      try {
+        localStorage.removeItem(`pending_signup_${uid}`);
+      } catch {}
+    } catch (err) {
+      bootstrappedProfilesRef.current.delete(uid);
+      console.warn("Profile auto-bootstrap notice:", err);
+    }
+  }, []);
 
   useEffect(() => {
     const unsub = onSnapshot(doc(db, 'settings', 'roi_config'), (snap) => {
@@ -1115,7 +1232,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         ]);
         const active = auth.currentUser;
         if (active) {
-          setUser(Object.assign(Object.create(Object.getPrototypeOf(active)), active));
+          setUser(active);
         }
       } catch (e) {
         console.warn("Auth reload failed during profile fetch", e);
@@ -1134,9 +1251,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const docRef = doc(db, 'users', currentCheckUser.uid);
     
     // Ensure loading is never stuck if Firestore is slow
-    const loadingSafetyTimer = setTimeout(() => {
-      setLoading(false);
-    }, 2000);
+    setLoading(false);
+    let snapshotReceived = false;
+
+    // Fast stateless REST fallback so profile loads in <300ms even if onSnapshot stream is slow
+    void (async () => {
+      try {
+        const token = await currentCheckUser.getIdToken().catch(() => undefined);
+        const restProfile = await fetchUserDocRest(currentCheckUser.uid, token, 3000);
+        if (restProfile && !snapshotReceived) {
+          setProfile((prev) => prev || (restProfile as UserProfile));
+        }
+      } catch {}
+    })();
 
     try {
       // Clear existing subscription
@@ -1146,7 +1273,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       const unsubscribe = onSnapshot(docRef, async (docSnap) => {
-        clearTimeout(loadingSafetyTimer);
+        snapshotReceived = true;
         if (docSnap.exists()) {
           const profileData = docSnap.data() as UserProfile;
           setProfile(profileData);
@@ -1154,23 +1281,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
           // Safe trigger existing reward balance correction once
           if (!profileData.withdraw_methods?.rewards_migrated_v2) {
-            runExistingDataCorrection(firebaseUser, profileData);
+            runExistingDataCorrection(currentCheckUser, profileData);
           }
 
           // Trigger relocation of ROI profits to Available Balance
           if (!profileData.withdraw_methods?.roi_relocated_v3) {
-            runRoiRelocationCorrection(firebaseUser, profileData);
+            runRoiRelocationCorrection(currentCheckUser, profileData);
           }
 
           // Trigger reconstruction of compounding amounts for compounding ROI threshold fix
           const isMigrated = profileData.withdraw_methods?.compounded_amounts_migrated_v1 || profileData.compounded_amounts_migrated_v1;
           if (!isMigrated) {
-            runCompoundingMigrationCorrection(firebaseUser, profileData);
+            runCompoundingMigrationCorrection(currentCheckUser, profileData);
           }
 
           // Trigger Auto-Compound Recovery for existing users
           if (!profileData.withdraw_methods?.auto_compound_recovered_v2) {
-            runAutoCompoundRecoveryCheck(firebaseUser, profileData);
+            runAutoCompoundRecoveryCheck(currentCheckUser, profileData);
           }
 
           // ROI Background Sync
@@ -1179,7 +1306,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
           // Auto-heal missing roi_cycle_start if active investments exist
           if (!cycleStartStr && !isRoiDisabled) {
-            const q = query(collection(db, 'investments'), where('user_id', '==', firebaseUser.uid), where('status', '==', 'active'));
+            const q = query(collection(db, 'investments'), where('user_id', '==', currentCheckUser.uid), where('status', '==', 'active'));
             getDocs(q).then(async (invSnap) => {
               if (!invSnap.empty) {
                 let earliestTime = new Date().getTime();
@@ -1203,35 +1330,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           }
 
           if (cycleStartStr && !isRoiDisabled) {
-            checkAndProcessROI(firebaseUser, docRef, profileData);
+            checkAndProcessROI(currentCheckUser, docRef, profileData);
           }
         } else {
-          setProfile(null);
           setLoading(false);
+          void bootstrapMissingProfile(currentCheckUser);
         }
       }, (error) => {
-        clearTimeout(loadingSafetyTimer);
         // If snapshot fails with permission error, retry silently without blocking loading
         if (error.message.includes('permission')) {
           if (retryCount < 3) {
             const delay = Math.pow(2, retryCount) * 500;
-            setTimeout(() => fetchProfileWithRetry(firebaseUser, retryCount + 1), delay);
+            setTimeout(() => fetchProfileWithRetry(currentCheckUser, retryCount + 1), delay);
           } else {
-            console.error("Max retries reached for profile fetch", error);
+            console.warn("Max retries reached for profile fetch:", error.message);
           }
         } else {
-          console.error("Profile subscription error:", error);
+          console.warn("Profile subscription warning:", error.message);
         }
         setLoading(false);
       });
 
       unsubscribeProfileRef.current = unsubscribe;
     } catch (err: any) {
-      clearTimeout(loadingSafetyTimer);
-      console.error("Fetch profile error:", err);
+      console.warn("Fetch profile warning:", err);
       setLoading(false);
     }
-  }, [checkAndProcessROI]);
+  }, [checkAndProcessROI, bootstrapMissingProfile]);
 
   useEffect(() => {
     if (!user || !profile) return;
@@ -1254,23 +1379,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const syncAuthSession = useCallback(async (signedInUser?: FirebaseUser) => {
     const targetUser = signedInUser || auth.currentUser;
     if (targetUser) {
-      if (!targetUser.emailVerified) {
-        try {
-          await Promise.race([
-            (async () => {
-              await targetUser.reload();
-              if (targetUser.emailVerified) {
-                await targetUser.getIdToken(true);
-              }
-            })(),
-            new Promise((_, reject) => setTimeout(() => reject(new Error('Auth sync timeout')), 4000))
-          ]);
-        } catch (e) {
-          console.warn("Auth reload in syncAuthSession:", e);
-        }
+      // Synchronously update user and clear loading so ProtectedRoute never blocks navigation
+      setUser(targetUser);
+      const initialCipher = isCipherAdmin(targetUser);
+      if (targetUser.emailVerified || initialCipher) {
+        setLoading(false);
+        void fetchProfileWithRetry(targetUser);
+        return;
       }
+
+      try {
+        await Promise.race([
+          (async () => {
+            await targetUser.reload();
+            if (targetUser.emailVerified) {
+              await targetUser.getIdToken(true);
+            }
+          })(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Auth sync timeout')), 3000))
+        ]);
+      } catch (e) {
+        console.warn("Auth reload in syncAuthSession:", e);
+      }
+
       const activeUser = auth.currentUser || targetUser;
-      setUser(Object.assign(Object.create(Object.getPrototypeOf(activeUser)), activeUser));
+      setUser(activeUser);
       const isCipher = isCipherAdmin(activeUser);
       if (activeUser.emailVerified || isCipher) {
         setLoading(false);
@@ -1293,6 +1426,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const unsubscribeAuth = auth.onAuthStateChanged(async (firebaseUser) => {
       if (firebaseUser) {
+        // Synchronously set user and clear loading if already verified so route guards never hang
+        setUser(firebaseUser);
+        const initialCipher = isCipherAdmin(firebaseUser);
+        if (firebaseUser.emailVerified || initialCipher) {
+          setLoading(false);
+          void fetchProfileWithRetry(firebaseUser);
+          return;
+        }
+
         const creationTimeMs = firebaseUser.metadata?.creationTime
           ? new Date(firebaseUser.metadata.creationTime).getTime()
           : 0;
@@ -1302,7 +1444,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           try {
             await Promise.race([
               firebaseUser.reload(),
-              new Promise((_, reject) => setTimeout(() => reject(new Error('Auth reload timeout')), 4000))
+              new Promise((_, reject) => setTimeout(() => reject(new Error('Auth reload timeout')), 3000))
             ]);
           } catch (e) {
             console.warn("Auth reload in onAuthStateChanged:", e);
@@ -1310,7 +1452,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
 
         const activeUser = auth.currentUser || firebaseUser;
-        setUser(Object.assign(Object.create(Object.getPrototypeOf(activeUser)), activeUser));
+        setUser(activeUser);
         
         const isCipher = isCipherAdmin(activeUser);
         if (activeUser.emailVerified || isCipher) {
