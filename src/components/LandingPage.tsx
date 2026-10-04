@@ -306,20 +306,15 @@ const Realistic3DIcon = ({ type }: { type: 'user' | 'plan' | 'fund' | 'node' }) 
 
 export default function LandingPage() {
   const { language, setLanguage, t } = useLanguage();
-  const { theme, effectiveTheme, isDark, setTheme } = useTheme();
+  const { theme, effectiveTheme, isDark, toggleTheme } = useTheme();
   const { syncAuthSession } = useAuth();
   const [isLanguageOpen, setIsLanguageOpen] = useState(false);
-  const [isThemeOpen, setIsThemeOpen] = useState(false);
   const languageRef = React.useRef<HTMLDivElement>(null);
-  const themeRef = React.useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (languageRef.current && !languageRef.current.contains(e.target as Node)) {
         setIsLanguageOpen(false);
-      }
-      if (themeRef.current && !themeRef.current.contains(e.target as Node)) {
-        setIsThemeOpen(false);
       }
     };
     document.addEventListener("mousedown", handleClickOutside);
@@ -327,113 +322,23 @@ export default function LandingPage() {
   }, []);
 
   const renderThemeSelector = () => (
-    <div className="relative" ref={themeRef}>
-      <button 
-        onClick={() => setIsThemeOpen(!isThemeOpen)}
-        className={cn(
-          "w-9 h-9 flex items-center justify-center rounded-xl transition-all shadow-[0_4px_12px_rgba(0,0,0,0.15)] active:scale-95",
-          isDark 
-            ? "bg-white/[0.04] border border-white/5 text-amber-300 hover:text-amber-200 hover:bg-white/[0.08] hover:border-white/10" 
-            : "bg-slate-100 border border-slate-200 text-amber-600 hover:text-amber-500 hover:bg-slate-200"
-        )}
-        title={`Theme: ${theme === 'system' ? `System (${effectiveTheme === 'dark' ? 'Dark' : 'Light'})` : theme === 'dark' ? 'Dark' : 'Light'}`}
-        aria-label="Theme selector"
-      >
-        {effectiveTheme === 'dark' ? (
-          <Moon size={17} className="transition-transform duration-300 hover:scale-110" />
-        ) : (
-          <Sun size={17} className="transition-transform duration-300 hover:scale-110" />
-        )}
-      </button>
-
-      <AnimatePresence>
-        {isThemeOpen && (
-          <motion.div
-            initial={{ opacity: 0, y: 10, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 10, scale: 0.95 }}
-            style={{ willChange: 'transform, opacity' }}
-            className={cn(
-              "absolute top-full right-0 mt-2 w-48 rounded-2xl border shadow-2xl z-[150] overflow-hidden backdrop-blur-xl p-1.5 space-y-1",
-              isDark ? "bg-[#11141b]/95 border-white/10" : "bg-white/95 border-aura-line shadow-lg"
-            )}
-          >
-            <div className={cn(
-              "px-3 py-1.5 text-[9px] font-black uppercase tracking-[0.25em] border-b mb-1",
-              isDark ? "text-white/40 border-white/5" : "text-slate-400 border-slate-100"
-            )}>
-              Theme Preference
-            </div>
-
-            {/* System */}
-            <button
-              onClick={() => {
-                setTheme('system');
-                setIsThemeOpen(false);
-              }}
-              className={cn(
-                "flex items-center justify-between w-full px-3 py-2.5 rounded-xl text-xs font-semibold tracking-wide transition-all",
-                theme === 'system'
-                  ? "bg-primary text-white shadow-md shadow-primary/20 font-bold"
-                  : isDark
-                    ? "text-white/60 hover:text-white hover:bg-white/5"
-                    : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
-              )}
-            >
-              <div className="flex items-center gap-2.5">
-                <Monitor size={14} />
-                <span className="text-[11px] font-bold uppercase tracking-wider">System</span>
-              </div>
-              {theme === 'system' && <CheckCircle2 size={13} className="text-current" />}
-            </button>
-
-            {/* Light */}
-            <button
-              onClick={() => {
-                setTheme('light');
-                setIsThemeOpen(false);
-              }}
-              className={cn(
-                "flex items-center justify-between w-full px-3 py-2.5 rounded-xl text-xs font-semibold tracking-wide transition-all",
-                theme === 'light'
-                  ? "bg-primary text-white shadow-md shadow-primary/20 font-bold"
-                  : isDark
-                    ? "text-white/60 hover:text-white hover:bg-white/5"
-                    : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
-              )}
-            >
-              <div className="flex items-center gap-2.5">
-                <Sun size={14} />
-                <span className="text-[11px] font-bold uppercase tracking-wider">Light</span>
-              </div>
-              {theme === 'light' && <CheckCircle2 size={13} className="text-current" />}
-            </button>
-
-            {/* Dark */}
-            <button
-              onClick={() => {
-                setTheme('dark');
-                setIsThemeOpen(false);
-              }}
-              className={cn(
-                "flex items-center justify-between w-full px-3 py-2.5 rounded-xl text-xs font-semibold tracking-wide transition-all",
-                theme === 'dark'
-                  ? "bg-primary text-white shadow-md shadow-primary/20 font-bold"
-                  : isDark
-                    ? "text-white/60 hover:text-white hover:bg-white/5"
-                    : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
-              )}
-            >
-              <div className="flex items-center gap-2.5">
-                <Moon size={14} />
-                <span className="text-[11px] font-bold uppercase tracking-wider">Dark</span>
-              </div>
-              {theme === 'dark' && <CheckCircle2 size={13} className="text-current" />}
-            </button>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
+    <button 
+      onClick={toggleTheme}
+      className={cn(
+        "w-9 h-9 flex items-center justify-center rounded-xl transition-all shadow-[0_4px_12px_rgba(0,0,0,0.15)] active:scale-95",
+        isDark 
+          ? "bg-white/[0.04] border border-white/5 text-amber-300 hover:text-amber-200 hover:bg-white/[0.08] hover:border-white/10" 
+          : "bg-slate-100 border border-slate-200 text-amber-600 hover:text-amber-500 hover:bg-slate-200"
+      )}
+      title={isDark ? "Switch to Light Mode" : "Switch to Dark Mode"}
+      aria-label={isDark ? "Switch to Light Mode" : "Switch to Dark Mode"}
+    >
+      {effectiveTheme === 'dark' ? (
+        <Moon size={17} className="transition-transform duration-300 hover:scale-110" />
+      ) : (
+        <Sun size={17} className="transition-transform duration-300 hover:scale-110" />
+      )}
+    </button>
   );
 
   const renderLanguageSelector = () => (
@@ -1852,7 +1757,8 @@ export default function LandingPage() {
           funding_balance: 0,
           available_balance: 0,
           total_earnings: 0,
-          total_invested: 10,
+          total_invested: 0,
+          bonus_credited: false,
           email_verified: true,
           profile_completed: false,
           is_google_user: true,
@@ -1867,16 +1773,6 @@ export default function LandingPage() {
           const token = await user.getIdToken().catch(() => undefined);
           await upsertUserDocRest(user.uid, initialGoogleProfile, token, 4000);
         }
-
-        const txId = `signup-bonus-${user.uid}`;
-        setDoc(doc(db, 'transactions', txId), {
-          user_id: user.uid,
-          type: 'signup_bonus',
-          amount: 10,
-          created_at: nowIso,
-          status: 'approved',
-          description: "Congratulations, you have just received a $10 signup bonus into your assets balance."
-        }).catch(() => {});
       }
 
       // Register device and store locally as trusted

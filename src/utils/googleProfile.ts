@@ -43,8 +43,8 @@ export function isGoogleProfileIncomplete(
 
   if (!isGoogle) return false;
 
-  // If already explicitly marked as completed
-  if (profile?.profile_completed === true) return false;
+  // If explicitly flagged as incomplete
+  if (profile?.profile_completed === false) return true;
 
   // Check required profile fields
   const rawPhone = String(profile?.phone || '').trim();
@@ -59,11 +59,11 @@ export function isGoogleProfileIncomplete(
   ).trim();
   const hasCountry = rawCountry.length > 0;
 
-  const rawPin = String(profile?.transfer_pin || '').trim();
+  const rawPin = String(profile?.transfer_pin || profile?.transaction_pin || '').trim();
   const hasPin = /^\d{4}$/.test(rawPin);
 
-  // If missing phone, country, transaction PIN, or explicitly flagged as incomplete
-  if (!hasPhone || !hasCountry || !hasPin || profile?.profile_completed === false) {
+  // Authoritative check: Must have profile_completed true, phone, country, and 4-digit PIN
+  if (!profile?.profile_completed || !hasPhone || !hasCountry || !hasPin) {
     return true;
   }
 

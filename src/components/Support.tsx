@@ -37,6 +37,7 @@ import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
 import { db } from '../lib/firebase';
 import { collection, addDoc, serverTimestamp, query, where, onSnapshot } from 'firebase/firestore';
+import { WhatsAppIcon, CGA_WHATSAPP_SUPPORT_URL } from './WhatsAppCommunitySlider';
 
 interface ChatMessage {
   role: 'user' | 'bot';
@@ -416,21 +417,21 @@ export default function Support() {
   };
 
   return (
-    <div className="w-full min-h-screen bg-[#050608] text-white">
+    <div className="w-full min-h-screen bg-slate-50/50 dark:bg-[#050608] text-slate-900 dark:text-white transition-colors duration-300">
       {/* Edge-to-Edge Premium Header Banner with Web App Primary Color gradient and border */}
-      <div className="support-header-banner w-full h-[180px] md:h-[240px] mb-12 relative overflow-hidden bg-gradient-to-r from-[#0a1122] via-[#0d1c10] to-[#0a1122] border-b-2 border-[#009e42] flex items-center justify-center select-none">
+      <div className="support-header-banner w-full h-[180px] md:h-[240px] mb-8 md:mb-12 relative overflow-hidden bg-gradient-to-r from-slate-900 via-[#0d1c10] to-slate-900 dark:from-[#0a1122] dark:via-[#0d1c10] dark:to-[#0a1122] border-b-2 border-[#009e42] flex items-center justify-center select-none">
         {/* Background Grid Accent */}
         <div className="absolute inset-0 bg-[linear-gradient(to_right,#ffffff01_1px,transparent_1px),linear-gradient(to_bottom,#ffffff01_1px,transparent_1px)] bg-[size:24px_24px] pointer-events-none" />
         
         {/* Glowing Orbs in Web App Primary Color */}
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-80 h-80 bg-[#009e42]/10 rounded-full blur-[90px] pointer-events-none" />
         
-        <div className="relative z-10 px-6 max-w-7xl mx-auto w-full flex flex-col items-center md:items-start text-center md:text-left space-y-2">
+        <div className="relative z-10 px-6 max-w-7xl mx-auto w-full flex flex-col items-center justify-center text-center space-y-2">
           <motion.h1 
             initial={{ opacity: 0, scale: 0.98 }}
             animate={{ opacity: 1, scale: 1 }}
             transition={{ duration: 0.6, delay: 0.1 }}
-            className="support-header-title text-3xl sm:text-4xl md:text-5xl font-black tracking-tight uppercase italic font-serif text-white"
+            className="support-header-title text-3xl sm:text-4xl md:text-5xl font-black tracking-tight uppercase italic font-serif text-white text-center"
           >
             Support <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#009e42] to-emerald-400 font-serif">Center</span>
           </motion.h1>
@@ -439,68 +440,71 @@ export default function Support() {
 
       <div className="max-w-7xl mx-auto px-4 lg:px-8 space-y-8 pb-24">
         {/* SECTION 1: ALL SUPPORT CHANNELS & EMAILS AT THE TOP */}
-      <section className="space-y-4 pt-2">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          <ContactCard 
-            icon={
-              <svg className="w-5 h-5 fill-current" viewBox="0 0 24 24">
-                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-1-.65-.35-1 .22-1.58.15-.15 2.71-2.48 2.76-2.69.01-.03.01-.14-.07-.2-.08-.06-.19-.04-.27-.02-.12.02-1.96 1.24-5.54 3.65-.52.36-.97.53-1.33.52-.4-.01-1.17-.23-1.74-.41-.7-.23-1.26-.35-1.21-.74.03-.2.29-.41.79-.62 3.09-1.34 5.15-2.23 6.19-2.67 2.94-1.24 3.55-1.45 3.95-1.46.09 0 .28.02.4.12.1.08.13.19.14.28-.01.07.01.21 0 .31z" />
-              </svg>
-            }
-            label="Telegram Support" 
-            value="@cga_help" 
-            href="https://t.me/cga_help"
-            brandColor="text-sky-400"
-            bgColor="bg-sky-500/10"
-          />
+        <section className="space-y-4 pt-2">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* 1. Email: capitalgrowthalliance@gmail.com */}
+            <EmailCard 
+              label="Operations Support" 
+              email="capitalgrowthalliance@gmail.com" 
+            />
 
+            {/* 2. Email: support.cgatrades@gmail.com */}
+            <EmailCard 
+              label="Executive Support Desk" 
+              email="support.cgatrades@gmail.com" 
+            />
 
-          {/* ADDED DEPOSITED SUPPORT EMAILS INSIDE PREMIUM EMAIL CARDS */}
-          <EmailCard label="Backup Operations Support" email="capitalgrowthalliance@gmail.com" />
-        </div>
-      </section>
+            {/* 3. WhatsApp Support */}
+            <ContactCard 
+              icon={<WhatsAppIcon className="w-5 h-5 flex-shrink-0" />}
+              label="WhatsApp Support" 
+              value="+1 (937) 600-2568" 
+              href={CGA_WHATSAPP_SUPPORT_URL}
+              brandColor="text-[#25D366]"
+              bgColor="bg-[#25D366]/10"
+            />
+          </div>
+        </section>
 
-      {/* SECTION 2: TICKET FORM AT THE BOTTOM */}
-      <div className="pt-4 max-w-4xl mx-auto w-full">
-        {/* Support Ticket form placed perfectly at bottom of Support page */}
-        <div className="space-y-6">
-          <section className="bg-white/5 border border-white/10 rounded-3xl p-8 shadow-sm backdrop-blur-sm relative">
-             <div className="mb-8">
-               <h2 className="text-2xl font-black text-white uppercase tracking-tight italic font-serif">ticket</h2>
-             </div>
+        {/* SECTION 2: TICKET FORM AT THE BOTTOM */}
+        <div className="pt-4 max-w-4xl mx-auto w-full">
+          {/* Support Ticket form placed perfectly at bottom of Support page */}
+          <div className="space-y-6">
+            <section className="bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-3xl p-8 shadow-sm backdrop-blur-sm relative">
+               <div className="mb-8">
+                 <h2 className="text-2xl font-black text-slate-900 dark:text-white uppercase tracking-tight italic font-serif">ticket</h2>
+               </div>
 
-             <form onSubmit={handleTicketSubmit} className="space-y-6">
-<div className="space-y-2">
-                   <label className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] ml-1">Subject</label>
-                   <div className="relative">
-                      <FileText className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-                      <input 
-                        type="text"
-                        required
-                        placeholder="subjects"
-                        value={ticketForm.subject}
-                        onChange={(e) => setTicketForm(prev => ({ ...prev, subject: e.target.value }))}
-                        className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 pl-12 pr-4 text-sm font-bold text-slate-200 outline-none focus:border-[#009e42]/50 transition-all"
-                      />
-                   </div>
-                </div>
+               <form onSubmit={handleTicketSubmit} className="space-y-6">
+                  <div className="space-y-2">
+                     <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-[0.2em] ml-1">Subject</label>
+                     <div className="relative">
+                        <FileText className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                        <input 
+                          type="text"
+                          required
+                          placeholder="subjects"
+                          value={ticketForm.subject}
+                          onChange={(e) => setTicketForm(prev => ({ ...prev, subject: e.target.value }))}
+                          className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-2xl py-4 pl-12 pr-4 text-sm font-bold text-slate-900 dark:text-slate-200 outline-none focus:border-[#009e42]/50 transition-all"
+                        />
+                     </div>
+                  </div>
 
-                <div className="space-y-2">
-                   <label className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] ml-1">Message / Query Description</label>
-                   <textarea 
-                     required
-                     placeholder="Describe your issue or query in detail..."
-                     value={ticketForm.message}
-                     onChange={(e) => setTicketForm(prev => ({ ...prev, message: e.target.value }))}
-                     rows={6}
-                     className="w-full bg-white/5 border border-white/10 rounded-3xl py-4 px-6 text-sm font-medium text-slate-200 outline-none focus:border-[#009e42]/50 transition-all resize-none"
-                   />
-                </div>
+                  <div className="space-y-2">
+                     <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-[0.2em] ml-1">Message / Query Description</label>
+                     <textarea 
+                       required
+                       placeholder="Describe your issue or query in detail..."
+                       value={ticketForm.message}
+                       onChange={(e) => setTicketForm(prev => ({ ...prev, message: e.target.value }))}
+                       rows={6}
+                       className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-3xl py-4 px-6 text-sm font-medium text-slate-900 dark:text-slate-200 outline-none focus:border-[#009e42]/50 transition-all resize-none"
+                     />
+                  </div>
 
-                 {/* Screenshot upload & camera capture section (re-styled to collapsed Attach files hyperlink with scroll-up options pedal) */}
-                 <div className="space-y-3 mt-1 relative">
-
-                    
+                  {/* Screenshot upload & camera capture section (re-styled to collapsed Attach files hyperlink with scroll-up options pedal) */}
+                  <div className="space-y-3 mt-1 relative">
                     <div className="relative inline-block">
                       {/* Hyperlink and icon trigger together */}
                       <button
@@ -525,63 +529,65 @@ export default function Support() {
                               animate={{ opacity: 1, y: 0, scale: 1 }}
                               exit={{ opacity: 0, y: 15, scale: 0.95 }}
                               transition={{ duration: 0.18, ease: "easeOut" }}
-                              className="absolute left-0 bottom-full mb-3 z-[1015] w-64 bg-[#0c1017] border border-white/10 rounded-2xl p-2 shadow-2xl backdrop-blur-md"
+                              className="absolute left-0 bottom-full mb-3 z-[1015] w-64 bg-white dark:bg-[#0c1017] border border-slate-200 dark:border-white/10 rounded-2xl p-2 shadow-2xl backdrop-blur-md"
                             >
-                              <div className="text-[9px] font-black text-slate-500 uppercase tracking-widest px-3 py-1.5 mb-1 border-b border-white/5">
+                              <div className="text-[9px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest px-3 py-1.5 mb-1 border-b border-slate-100 dark:border-white/5">
                                 Select Source
                               </div>
                               
-                              {/* Google Drive Option */}
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setIsDriveModalOpen(true);
-                                  setIsAttachmentMenuOpen(false);
-                                }}
-                                className="w-full flex items-center gap-2.5 px-3 py-2.5 hover:bg-white/5 rounded-xl text-left transition-all cursor-pointer group text-xs text-slate-200 hover:text-white"
-                              >
-                                <Cloud size={14} className="text-slate-400 group-hover:text-blue-400 transition-colors" />
-                                <span className="font-bold">Google Drive</span>
-                              </button>
+                              <div className="space-y-1">
+                                {/* Google Drive Option */}
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setIsDriveModalOpen(true);
+                                    setIsAttachmentMenuOpen(false);
+                                  }}
+                                  className="w-full flex items-center gap-2.5 px-3 py-2.5 hover:bg-slate-100 active:bg-slate-200 dark:hover:bg-white/5 rounded-xl text-left transition-all cursor-pointer group text-xs text-slate-800 dark:text-slate-200 hover:text-slate-950 dark:hover:text-white"
+                                >
+                                  <Cloud size={15} className="text-blue-500 dark:text-slate-400 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors shrink-0" />
+                                  <span className="font-bold">Google Drive</span>
+                                </button>
 
-                              {/* Choose Files Option */}
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  fileInputRef.current?.click();
-                                  setIsAttachmentMenuOpen(false);
-                                }}
-                                className="w-full flex items-center gap-2.5 px-3 py-2.5 hover:bg-white/5 rounded-xl text-left transition-all cursor-pointer group text-xs text-slate-200 hover:text-white"
-                              >
-                                <FolderOpen size={14} className="text-slate-400 group-hover:text-[#009e42] transition-colors" />
-                                <span className="font-bold">Choose Files</span>
-                              </button>
+                                {/* Choose File Option */}
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    fileInputRef.current?.click();
+                                    setIsAttachmentMenuOpen(false);
+                                  }}
+                                  className="w-full flex items-center gap-2.5 px-3 py-2.5 hover:bg-slate-100 active:bg-slate-200 dark:hover:bg-white/5 rounded-xl text-left transition-all cursor-pointer group text-xs text-slate-800 dark:text-slate-200 hover:text-slate-950 dark:hover:text-white"
+                                >
+                                  <FolderOpen size={15} className="text-emerald-600 dark:text-slate-400 group-hover:text-[#009e42] dark:group-hover:text-[#009e42] transition-colors shrink-0" />
+                                  <span className="font-bold">Choose File</span>
+                                </button>
 
-                              {/* Take Photo Option */}
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  startCamera();
-                                  setIsAttachmentMenuOpen(false);
-                                }}
-                                className="w-full flex items-center gap-2.5 px-3 py-2.5 hover:bg-white/5 rounded-xl text-left transition-all cursor-pointer group text-xs text-slate-200 hover:text-white"
-                              >
-                                <Camera size={14} className="text-slate-400 group-hover:text-pink-400 transition-colors" />
-                                <span className="font-bold">Take Photo</span>
-                              </button>
+                                {/* Take Photo Option */}
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    startCamera();
+                                    setIsAttachmentMenuOpen(false);
+                                  }}
+                                  className="w-full flex items-center gap-2.5 px-3 py-2.5 hover:bg-slate-100 active:bg-slate-200 dark:hover:bg-white/5 rounded-xl text-left transition-all cursor-pointer group text-xs text-slate-800 dark:text-slate-200 hover:text-slate-950 dark:hover:text-white"
+                                >
+                                  <Camera size={15} className="text-pink-500 dark:text-slate-400 group-hover:text-pink-600 dark:group-hover:text-pink-400 transition-colors shrink-0" />
+                                  <span className="font-bold">Take Photo</span>
+                                </button>
 
-                              {/* Photo Gallery Option */}
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  galleryInputRef.current?.click();
-                                  setIsAttachmentMenuOpen(false);
-                                }}
-                                className="w-full flex items-center gap-2.5 px-3 py-2.5 hover:bg-white/5 rounded-xl text-left transition-all cursor-pointer group text-xs text-slate-200 hover:text-white"
-                              >
-                                <ImageIcon size={14} className="text-slate-400 group-hover:text-amber-400 transition-colors" />
-                                <span className="font-bold">Photo Gallery / Library</span>
-                              </button>
+                                {/* Photo Gallery Option */}
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    galleryInputRef.current?.click();
+                                    setIsAttachmentMenuOpen(false);
+                                  }}
+                                  className="w-full flex items-center gap-2.5 px-3 py-2.5 hover:bg-slate-100 active:bg-slate-200 dark:hover:bg-white/5 rounded-xl text-left transition-all cursor-pointer group text-xs text-slate-800 dark:text-slate-200 hover:text-slate-950 dark:hover:text-white"
+                                >
+                                  <ImageIcon size={15} className="text-amber-500 dark:text-slate-400 group-hover:text-amber-600 dark:group-hover:text-amber-400 transition-colors shrink-0" />
+                                  <span className="font-bold">Photo Gallery / Library</span>
+                                </button>
+                              </div>
                             </motion.div>
                           </>
                         )}
@@ -607,18 +613,18 @@ export default function Support() {
 
                     {/* Beautiful current attachments preview list */}
                     {attachments.length > 0 && (
-                      <div className="mt-4 space-y-2 border-t border-white/5 pt-4">
-                        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">
+                      <div className="mt-4 space-y-2 border-t border-slate-200 dark:border-white/5 pt-4">
+                        <p className="text-[9px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
                           Attached Files ({attachments.length})
                         </p>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                           {attachments.map((att, idx) => (
-                            <div key={idx} className="flex items-center justify-between p-3 bg-white/5 border border-white/10 rounded-xl">
+                            <div key={idx} className="flex items-center justify-between p-3 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl">
                               <div className="flex items-center gap-2 overflow-hidden">
                                 <FileText size={14} className="text-slate-400 shrink-0" />
                                 <div className="truncate">
-                                  <p className="text-xs font-bold text-slate-200 truncate">{att.name}</p>
-                                  <p className="text-[9px] text-slate-400">{(att.size / 1024).toFixed(1)} KB</p>
+                                  <p className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate">{att.name}</p>
+                                  <p className="text-[9px] text-slate-500 dark:text-slate-400">{(att.size / 1024).toFixed(1)} KB</p>
                                 </div>
                               </div>
                               <button
@@ -627,7 +633,7 @@ export default function Support() {
                                   setAttachments(prev => prev.filter((_, i) => i !== idx));
                                   toast.success(`Removed attachment: ${att.name}`);
                                 }}
-                                className="text-red-400 hover:text-red-300 p-1 cursor-pointer shrink-0"
+                                className="text-red-500 hover:text-red-600 dark:text-red-400 dark:hover:text-red-300 p-1 cursor-pointer shrink-0"
                               >
                                 <X size={14} />
                               </button>
@@ -639,7 +645,7 @@ export default function Support() {
                         </p>
                       </div>
                     )}
-                 </div>
+                  </div>
 
                  <button 
                     disabled={isSubmitting || !ticketForm.message || !ticketForm.subject}
@@ -668,13 +674,12 @@ export default function Support() {
           </section>
 
           {/* SECTION 3: TICKET HISTORY */}
-          <section className="bg-white/5 border border-white/10 rounded-3xl p-8 shadow-sm backdrop-blur-sm mt-8">
+          <section className="bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-3xl p-8 shadow-sm backdrop-blur-sm mt-8">
              <div className="mb-6 flex items-center justify-between">
                 <div>
-                   <h3 className="text-xl font-black text-white uppercase tracking-tight italic font-serif">Ticket History</h3>
-                   
+                   <h3 className="text-xl font-black text-slate-900 dark:text-white uppercase tracking-tight italic font-serif">Ticket History</h3>
                 </div>
-                <div className="px-3 py-1 bg-white/5 border border-white/10 rounded-xl text-[10px] font-mono text-slate-400">
+                <div className="px-3 py-1 bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl text-[10px] font-mono text-slate-600 dark:text-slate-400">
                    {userTickets.length} {userTickets.length === 1 ? 'ticket' : 'tickets'}
                 </div>
              </div>
@@ -685,9 +690,9 @@ export default function Support() {
                   <span className="text-xs uppercase font-bold tracking-widest">Loading Ticket Records...</span>
                </div>
              ) : userTickets.length === 0 ? (
-               <div className="py-16 text-center border border-dashed border-white/10 rounded-2xl bg-white/[0.01]">
-                  <Clock className="mx-auto text-slate-500 mb-3 animate-pulse" size={32} />
-                  <p className="text-sm font-bold text-slate-400">No ticket records found</p>
+               <div className="py-16 text-center border border-dashed border-slate-200 dark:border-white/10 rounded-2xl bg-slate-50/50 dark:bg-white/[0.01]">
+                  <Clock className="mx-auto text-slate-400 dark:text-slate-500 mb-3 animate-pulse" size={32} />
+                  <p className="text-sm font-bold text-slate-700 dark:text-slate-400">No ticket records found</p>
                   <p className="text-[10px] text-slate-500 uppercase tracking-widest mt-1">Submit your first inquiry above</p>
                </div>
              ) : (
@@ -701,14 +706,14 @@ export default function Support() {
                     return (
                       <div 
                         key={ticket.id}
-                        className="p-5 border border-white/5 bg-white/[0.02] hover:bg-white/[0.04] rounded-2xl transition-all space-y-4"
+                        className="p-5 border border-slate-200 dark:border-white/5 bg-slate-50/50 dark:bg-white/[0.02] hover:bg-slate-100/50 dark:hover:bg-white/[0.04] rounded-2xl transition-all space-y-4"
                       >
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/5 pb-3">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 dark:border-white/5 pb-3">
                            <div className="space-y-1">
-                              <span className="text-[9px] font-black uppercase font-mono bg-white/5 px-2 py-0.5 rounded text-white tracking-widest">
+                              <span className="text-[9px] font-black uppercase font-mono bg-slate-200/60 dark:bg-white/5 px-2 py-0.5 rounded text-slate-800 dark:text-white tracking-widest">
                                 Ticket ID: {ticket.id.substring(0, 8)}...
                               </span>
-                              <h4 className="text-sm font-bold text-white tracking-tight mt-1">
+                              <h4 className="text-sm font-bold text-slate-900 dark:text-white tracking-tight mt-1">
                                  {ticket.subject || "Platform Ticket"}
                               </h4>
                            </div>
@@ -717,17 +722,17 @@ export default function Support() {
                              <span className={cn(
                                "text-[9px] font-black uppercase tracking-widest px-3 py-1 rounded-full border leading-none",
                                ticket.status === 'resolved' 
-                                 ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+                                 ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
                                  : ticket.status === 'in-progress'
-                                   ? "bg-amber-500/10 text-amber-400 border-amber-500/20"
-                                   : "bg-rose-500/10 text-rose-400 border-rose-500/20"
+                                   ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20"
+                                   : "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20"
                              )}>
                                {ticket.status === 'resolved' ? 'treated / successful' : ticket.status === 'in-progress' ? 'treating / in progress' : 'pending'}
                              </span>
                            </div>
                         </div>
 
-                        <p className="text-xs text-slate-300 leading-relaxed whitespace-pre-wrap">
+                        <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed whitespace-pre-wrap">
                            {ticket.message}
                         </p>
 
@@ -884,43 +889,43 @@ export default function Support() {
       {/* Google Drive Mock Modal */}
       <AnimatePresence>
         {isDriveModalOpen && (
-          <div className="fixed inset-0 z-[3000] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+          <div className="fixed inset-0 z-[3000] flex items-center justify-center p-4 bg-black/60 dark:bg-black/80 backdrop-blur-md">
             <motion.div 
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="bg-[#0c1017] border border-white/10 rounded-3xl p-6 max-w-lg w-full shadow-2xl relative"
+              className="bg-white dark:bg-[#0c1017] border border-slate-200 dark:border-white/10 rounded-3xl p-6 max-w-lg w-full shadow-2xl relative text-slate-900 dark:text-white"
             >
-              <div className="flex items-center justify-between border-b border-white/5 pb-4 mb-4">
+              <div className="flex items-center justify-between border-b border-slate-100 dark:border-white/5 pb-4 mb-4">
                 <div className="flex items-center gap-2">
-                  <Cloud size={18} className="text-blue-400" />
-                  <h3 className="text-base font-black uppercase tracking-wider text-white">Google Drive</h3>
+                  <Cloud size={18} className="text-blue-500" />
+                  <h3 className="text-base font-black uppercase tracking-wider text-slate-900 dark:text-white">Google Drive</h3>
                 </div>
                 <button 
                   onClick={() => setIsDriveModalOpen(false)}
-                  className="p-1 hover:bg-white/10 rounded-lg text-slate-400 hover:text-white transition-all cursor-pointer"
+                  className="p-1 hover:bg-slate-100 dark:hover:bg-white/10 rounded-lg text-slate-400 hover:text-slate-800 dark:hover:text-white transition-all cursor-pointer"
                 >
                   <X size={18} />
                 </button>
               </div>
 
-              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-3">Recent Files</p>
+              <p className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider mb-3">Recent Files</p>
               
               <div className="space-y-2 max-h-[260px] overflow-y-auto pr-1">
                 {driveFiles.map((file) => (
                   <button
                     key={file.id}
                     onClick={() => handleSelectDriveFile(file)}
-                    className="w-full flex items-center justify-between p-3 hover:bg-white/5 border border-white/5 hover:border-[#009e42]/20 rounded-xl text-left transition-all group cursor-pointer"
+                    className="w-full flex items-center justify-between p-3 hover:bg-slate-50 dark:hover:bg-white/5 border border-slate-100 dark:border-white/5 hover:border-[#009e42]/30 rounded-xl text-left transition-all group cursor-pointer"
                   >
                     <div className="flex items-center gap-2.5 overflow-hidden">
-                      <FileText size={16} className="text-slate-400 group-hover:text-blue-400 transition-colors shrink-0" />
+                      <FileText size={16} className="text-slate-400 group-hover:text-blue-500 transition-colors shrink-0" />
                       <div className="truncate">
-                        <p className="text-xs font-bold text-slate-200 group-hover:text-white transition-colors truncate">{file.name}</p>
+                        <p className="text-xs font-bold text-slate-800 dark:text-slate-200 group-hover:text-slate-950 dark:group-hover:text-white transition-colors truncate">{file.name}</p>
                         <p className="text-[9px] text-slate-500">{file.type === 'pdf' ? 'PDF Document' : 'Spreadsheet'} • {file.size}</p>
                       </div>
                     </div>
-                    <span className="text-[9px] font-black uppercase tracking-wider text-blue-400 border border-blue-500/10 px-2 py-0.5 rounded bg-blue-500/5 group-hover:bg-blue-400 group-hover:text-slate-950 transition-all">
+                    <span className="text-[9px] font-black uppercase tracking-wider text-blue-600 dark:text-blue-400 border border-blue-500/20 px-2 py-0.5 rounded bg-blue-500/10 group-hover:bg-blue-500 group-hover:text-white transition-all">
                       Import
                     </span>
                   </button>
@@ -930,7 +935,7 @@ export default function Support() {
               <div className="mt-5 text-right">
                 <button
                   onClick={() => setIsDriveModalOpen(false)}
-                  className="px-4 py-2 bg-white/5 hover:bg-white/10 text-white font-bold rounded-xl text-xs uppercase tracking-wider transition-all cursor-pointer"
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-white/5 dark:hover:bg-white/10 text-slate-800 dark:text-white font-bold rounded-xl text-xs uppercase tracking-wider transition-all cursor-pointer"
                 >
                   Cancel
                 </button>
@@ -1227,18 +1232,18 @@ function ContactCard({ icon, label, value, href, brandColor = "text-blue-500", b
       href={href}
       target="_blank"
       rel="noopener noreferrer"
-      className="bg-white/5 border border-white/10 p-5 rounded-2xl flex items-center justify-between group hover:border-[#009e42]/30 hover:bg-white/[0.02] transition-all backdrop-blur-sm"
+      className="bg-white/80 dark:bg-white/5 border border-slate-200 dark:border-white/10 p-5 rounded-2xl flex items-center justify-between group hover:border-[#009e42]/40 hover:bg-white dark:hover:bg-white/[0.02] shadow-sm hover:shadow-md transition-all backdrop-blur-sm"
     >
-      <div className="flex items-center gap-4">
-        <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform", bgColor, brandColor)}>
+      <div className="flex items-center gap-3.5 min-w-0">
+        <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform", bgColor, brandColor)}>
           {icon}
         </div>
-        <div>
-          <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest leading-none mb-1">{label}</p>
-          <p className="text-xs font-black text-slate-100 tracking-tight">{value}</p>
+        <div className="min-w-0 truncate">
+          <p className="text-[9px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest leading-none mb-1">{label}</p>
+          <p className="text-xs font-black text-slate-900 dark:text-slate-100 tracking-tight truncate">{value}</p>
         </div>
       </div>
-      <ExternalLink size={14} className="text-slate-500 group-hover:text-emerald-400 transition-colors" />
+      <ExternalLink size={14} className="text-slate-400 dark:text-slate-500 group-hover:text-emerald-500 transition-colors shrink-0 ml-2" />
     </a>
   );
 }
@@ -1256,27 +1261,31 @@ function EmailCard({ email, label }: { email: string; label: string }) {
   };
 
   return (
-    <div className="bg-gradient-to-br from-white/[0.03] to-white/[0.01] border border-white/10 p-5 rounded-2xl flex items-center justify-between group hover:border-blue-500/30 hover:bg-white/[0.02] transition-all backdrop-blur-sm relative overflow-hidden">
-      <div className="flex items-center gap-4">
-        <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-blue-500/10 text-blue-400 group-hover:scale-110 transition-transform">
+    <a 
+      href={`mailto:${email}`}
+      className="bg-white/80 dark:bg-gradient-to-br dark:from-white/[0.03] dark:to-white/[0.01] border border-slate-200 dark:border-white/10 p-5 rounded-2xl flex items-center justify-between group hover:border-blue-500/40 hover:bg-white dark:hover:bg-white/[0.02] shadow-sm hover:shadow-md transition-all backdrop-blur-sm relative overflow-hidden"
+    >
+      <div className="flex items-center gap-3.5 min-w-0">
+        <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 bg-blue-500/10 text-blue-600 dark:text-blue-400 group-hover:scale-110 transition-transform">
           <Mail size={18} />
         </div>
-        <div>
-          <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest leading-none mb-1">{label}</p>
-          <p className="text-xs font-black text-slate-100 tracking-tight select-all">{email}</p>
+        <div className="min-w-0">
+          <p className="text-[9px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest leading-none mb-1">{label}</p>
+          <p className="text-xs font-black text-slate-900 dark:text-slate-100 tracking-tight truncate select-all">{email}</p>
         </div>
       </div>
       <button 
+        type="button"
         onClick={handleCopy}
-        className="p-2.5 bg-white/5 hover:bg-white/10 rounded-xl transition-all border border-white/5 hover:border-white/20 cursor-pointer flex items-center justify-center shrink-0"
+        className="p-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-white/5 dark:hover:bg-white/10 rounded-xl transition-all border border-slate-200 dark:border-white/5 hover:border-slate-300 dark:hover:border-white/20 cursor-pointer flex items-center justify-center shrink-0 ml-2"
         title="Copy to Clipboard"
       >
         {copied ? (
-          <CheckCircle2 size={13} className="text-blue-400" />
+          <CheckCircle2 size={13} className="text-emerald-500 dark:text-blue-400" />
         ) : (
-          <Copy size={13} className="text-slate-400 group-hover:text-blue-400 transition-colors" />
+          <Copy size={13} className="text-slate-500 dark:text-slate-400 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors" />
         )}
       </button>
-    </div>
+    </a>
   );
 }

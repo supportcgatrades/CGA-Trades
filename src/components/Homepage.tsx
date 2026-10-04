@@ -43,6 +43,7 @@ import { RotatingButtonText } from './RotatingButtonText';
 import { collection, query, where, onSnapshot, doc, updateDoc, runTransaction, increment } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { toast } from 'sonner';
+import { isGoogleProfileIncomplete } from '../utils/googleProfile';
 import { broadcastActivity } from '../lib/activity_logger';
 
 import TopInvestorsSection from './TopInvestorsSection';
@@ -60,8 +61,24 @@ export default function Homepage() {
   const { user, profile } = useAuth();
   const { t } = useLanguage();
   const { mode, isLite, isBeta } = useMode();
-  const { requestPopup, closePopup, activePopupId, openTransferModal } = useUI();
+  const { requestPopup, closePopup, activePopupId, openTransferModal, openVerificationPrompt } = useUI();
   const navigate = useNavigate();
+
+  const handleInvestAction = () => {
+    if (user && isGoogleProfileIncomplete(user, profile)) {
+      openVerificationPrompt("Please verify your account to access this feature.");
+      return;
+    }
+    navigate('/invest');
+  };
+
+  const handleFundAction = () => {
+    if (user && isGoogleProfileIncomplete(user, profile)) {
+      openVerificationPrompt("Please verify your account to access this feature.");
+      return;
+    }
+    navigate('/fund/deposit');
+  };
   const [showBalance, setShowBalance] = useState(() => localStorage.getItem('show_homepage_balance') !== 'false');
   
   const [isLight, setIsLight] = useState(() => document.documentElement.classList.contains('light'));
@@ -83,7 +100,8 @@ export default function Homepage() {
     if (!user || !profile) return;
     
     const isCipher = profile.role === 'cipher';
-    const isVerified = user.emailVerified || isCipher;
+    const isGoogleUser = Boolean(profile?.is_google_user || user?.providerData?.some(p => p.providerId === 'google.com'));
+    const isVerified = user.emailVerified || profile?.email_verified || isGoogleUser || isCipher;
 
     if (!isVerified) return;
 
@@ -872,7 +890,7 @@ export default function Homepage() {
             {/* Horizontal Button Group */}
             <div className="grid grid-cols-3 gap-3 w-full max-w-xl mx-auto px-1">
               <button
-                onClick={() => navigate('/invest')}
+                onClick={handleInvestAction}
                 className={cn(
                   "flex flex-col items-center justify-center gap-1.5 py-4 rounded-[20px] text-[10px] font-black uppercase tracking-widest transition-all duration-200 active:scale-95 cursor-pointer shadow-sm",
                   (isLite || isLight)
@@ -884,7 +902,7 @@ export default function Homepage() {
                 <span>Invest</span>
               </button>
               <button
-                onClick={() => navigate('/fund/deposit')}
+                onClick={handleFundAction}
                 className="flex flex-col items-center justify-center gap-1.5 py-4 rounded-[20px] text-[10px] font-black uppercase tracking-widest text-white bg-[#009e42] hover:bg-[#02d147] border border-[#009e42]/20 shadow-[0_4px_15px_rgba(0,158,66,0.25)] hover:shadow-[0_4px_22px_rgba(0,158,66,0.35)] active:scale-95 transition-all duration-200 cursor-pointer"
               >
                 <Wallet size={16} className="text-white" />
@@ -940,7 +958,7 @@ export default function Homepage() {
           <div className={cn("grid gap-3 w-full", isBeta ? "grid-cols-7" : "grid-cols-6")}>
             {/* INVEST */}
             <button
-              onClick={() => navigate('/invest')}
+              onClick={handleInvestAction}
               className="flex flex-col items-center justify-center gap-2 py-4 rounded-[20px] text-[9px] font-bold uppercase tracking-widest text-zinc-300 bg-zinc-900/80 border border-white/5 hover:border-blue-500/40 hover:text-white hover:bg-zinc-800/80 active:scale-95 transition-all duration-200 cursor-pointer text-center shadow-[0_4px_12px_rgba(0,0,0,0.2)]"
             >
               <TrendingUp size={14} className="text-blue-400" />
@@ -949,7 +967,7 @@ export default function Homepage() {
 
             {/* FUND */}
             <button
-              onClick={() => navigate('/fund/deposit')}
+              onClick={handleFundAction}
               className="flex flex-col items-center justify-center gap-2 py-4 rounded-[20px] text-[9px] font-black uppercase tracking-widest text-white bg-[#009e42] hover:bg-[#02d147] border border-[#009e42]/20 hover:brightness-110 hover:shadow-[0_0_25px_rgba(0,158,66,0.3)] active:scale-95 transition-all duration-200 cursor-pointer text-center"
             >
               <Wallet size={14} className="text-white" />
@@ -1165,6 +1183,10 @@ export default function Homepage() {
                     key={item.label}
                     onClick={() => {
                       setShowExploreModal(false);
+                      if (user && isGoogleProfileIncomplete(user, profile) && (item.path.startsWith('/invest') || item.path.startsWith('/fund'))) {
+                        openVerificationPrompt("Please verify your account to access this feature.");
+                        return;
+                      }
                       navigate(item.path);
                     }}
                     className={cn(

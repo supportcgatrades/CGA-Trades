@@ -1,4 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
+import { useAuth } from './AuthContext';
+import { isGoogleProfileIncomplete } from '../utils/googleProfile';
 
 interface PopupRequest {
   id: string;
@@ -29,11 +31,22 @@ interface UIContextType {
   setApprovedNotificationPopup: (val: { id: string; planName: string; amount: number } | null) => void;
   isWelcomeBonusDeductedPopupOpen: { planName: string; amount: number } | null;
   setIsWelcomeBonusDeductedPopupOpen: (val: { planName: string; amount: number } | null) => void;
+
+  // Verification Prompt & Success Modal States
+  isVerificationPromptOpen: boolean;
+  verificationPromptMessage?: string;
+  openVerificationPrompt: (message?: string) => void;
+  closeVerificationPrompt: () => void;
+  isVerificationSuccessOpen: boolean;
+  verificationSuccessAvatar: string | undefined;
+  openVerificationSuccess: (avatarUrl?: string) => void;
+  closeVerificationSuccess: () => void;
 }
 
 const UIContext = createContext<UIContextType | undefined>(undefined);
 
 export function UIProvider({ children }: { children: React.ReactNode }) {
+  const { user, profile } = useAuth();
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
   const [isDistractionFree, setIsDistractionFree] = useState(false);
   
@@ -52,6 +65,30 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
   const [processingInvestmentId, setProcessingInvestmentId] = useState<string | null>(null);
   const [approvedNotificationPopup, setApprovedNotificationPopup] = useState<{ id: string; planName: string; amount: number } | null>(null);
   const [isWelcomeBonusDeductedPopupOpen, setIsWelcomeBonusDeductedPopupOpen] = useState<{ planName: string; amount: number } | null>(null);
+
+  // Verification Prompt & Success State
+  const [isVerificationPromptOpen, setIsVerificationPromptOpen] = useState(false);
+  const [verificationPromptMessage, setVerificationPromptMessage] = useState<string | undefined>(undefined);
+  const [isVerificationSuccessOpen, setIsVerificationSuccessOpen] = useState(false);
+  const [verificationSuccessAvatar, setVerificationSuccessAvatar] = useState<string | undefined>(undefined);
+
+  const openVerificationPrompt = (message?: string) => {
+    setVerificationPromptMessage(message);
+    setIsVerificationPromptOpen(true);
+  };
+  const closeVerificationPrompt = () => {
+    setIsVerificationPromptOpen(false);
+    setVerificationPromptMessage(undefined);
+  };
+
+  const openVerificationSuccess = (avatarUrl?: string) => {
+    setVerificationSuccessAvatar(avatarUrl);
+    setIsVerificationSuccessOpen(true);
+  };
+  const closeVerificationSuccess = () => {
+    setIsVerificationSuccessOpen(false);
+    setVerificationSuccessAvatar(undefined);
+  };
 
   // Keep a table/registry of actual callbacks to support multi-component onClose correctly
   const popupRegistryRef = useRef<Map<string, PopupRequest>>(new Map());
@@ -97,7 +134,13 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
     return () => clearInterval(intervalId);
   }, []);
 
-  const openTransferModal = () => setIsTransferModalOpen(true);
+  const openTransferModal = () => {
+    if (user && isGoogleProfileIncomplete(user, profile)) {
+      openVerificationPrompt("Please verify your account to access this feature.");
+      return;
+    }
+    setIsTransferModalOpen(true);
+  };
   const closeTransferModal = () => setIsTransferModalOpen(false);
   const setDistractionFree = (value: boolean) => setIsDistractionFree(value);
 
@@ -206,7 +249,15 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
       approvedNotificationPopup,
       setApprovedNotificationPopup,
       isWelcomeBonusDeductedPopupOpen,
-      setIsWelcomeBonusDeductedPopupOpen
+      setIsWelcomeBonusDeductedPopupOpen,
+      isVerificationPromptOpen,
+      verificationPromptMessage,
+      openVerificationPrompt,
+      closeVerificationPrompt,
+      isVerificationSuccessOpen,
+      verificationSuccessAvatar,
+      openVerificationSuccess,
+      closeVerificationSuccess
     }}>
       {children}
     </UIContext.Provider>

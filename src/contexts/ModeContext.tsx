@@ -1,5 +1,8 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import { useAuth } from './AuthContext';
+import { useUI } from './UIContext';
+import { isGoogleProfileIncomplete } from '../utils/googleProfile';
 
 export type CGAMode = 'lite' | 'beta';
 
@@ -21,6 +24,11 @@ const STORAGE_KEY = 'cga_interface_mode';
 const PROMPT_STORAGE_KEY = 'cga_beta_prompt_dismissed';
 
 export const ModeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { user, profile } = useAuth();
+  const { openVerificationPrompt } = useUI();
+
+  const isGoogleUnverified = Boolean(user && isGoogleProfileIncomplete(user, profile));
+
   const [mode, setModeState] = useState<CGAMode>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
@@ -35,6 +43,17 @@ export const ModeProvider: React.FC<{ children: React.ReactNode }> = ({ children
   });
 
   const [transitionTarget, setTransitionTarget] = useState<CGAMode | null>(null);
+
+  // If user is an unverified Google account and currently in beta, force revert to lite
+  useEffect(() => {
+    if (isGoogleUnverified && mode === 'beta') {
+      setModeState('lite');
+      try {
+        document.documentElement.setAttribute('data-cga-mode', 'lite');
+        localStorage.setItem(STORAGE_KEY, 'lite');
+      } catch (e) {}
+    }
+  }, [isGoogleUnverified, mode]);
 
   const [hasSeenBetaPrompt, setHasSeenBetaPrompt] = useState<boolean>(() => {
     try {
@@ -55,6 +74,12 @@ export const ModeProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const setMode = (newMode: CGAMode, onComplete?: () => void) => {
     if (newMode === mode) return;
+
+    // Prevent unverified Google users from switching from Lite -> Beta
+    if (newMode === 'beta' && isGoogleUnverified) {
+      openVerificationPrompt("Please complete your account verification to access CGA Beta.");
+      return;
+    }
 
     // Immediately trigger transition overlay (no toast, no banner)
     setTransitionTarget(newMode);

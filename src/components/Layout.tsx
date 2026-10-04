@@ -53,13 +53,15 @@ import { useMode } from '../contexts/ModeContext';
 import TransferModal from './TransferModal';
 import LegacyUpgradeModal from './LegacyUpgradeModal';
 import PremiumTransferSuccessModal from './PremiumTransferSuccessModal';
+import VerificationPromptModal from './VerificationPromptModal';
+import VerificationSuccessModal from './VerificationSuccessModal';
 import { db } from '../lib/firebase';
 import { collection, query, where, orderBy, onSnapshot, limit, doc, updateDoc, deleteDoc, increment, runTransaction } from 'firebase/firestore';
 import { formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
 import MarketTicker from './MarketTicker';
 import Footer from './Footer';
-import WhatsAppCommunitySlider from './WhatsAppCommunitySlider';
+import WhatsAppCommunitySlider, { WhatsAppIcon, CGA_WHATSAPP_SUPPORT_URL } from './WhatsAppCommunitySlider';
 import { isGoogleProfileIncomplete } from '../utils/googleProfile';
 
 // --- SUB-COMPONENTS ---
@@ -242,7 +244,14 @@ export default function Layout() {
     approvedNotificationPopup,
     setApprovedNotificationPopup,
     isWelcomeBonusDeductedPopupOpen,
-    setIsWelcomeBonusDeductedPopupOpen
+    setIsWelcomeBonusDeductedPopupOpen,
+    isVerificationPromptOpen,
+    verificationPromptMessage,
+    openVerificationPrompt,
+    closeVerificationPrompt,
+    isVerificationSuccessOpen,
+    verificationSuccessAvatar,
+    closeVerificationSuccess
   } = useUI();
   const location = useLocation();
   const [isSpinMineOpen, setIsSpinMineOpen] = useState(false);
@@ -376,7 +385,6 @@ export default function Layout() {
   const [expandedSection, setExpandedSection] = useState<string | null>(null);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isLanguageOpen, setIsLanguageOpen] = useState(false);
-  const [isThemeOpen, setIsThemeOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -693,7 +701,6 @@ export default function Layout() {
 
   const profileRef = useRef<HTMLDivElement>(null);
   const languageRef = useRef<HTMLDivElement>(null);
-  const themeRef = useRef<HTMLDivElement>(null);
   const notificationsRef = useRef<HTMLDivElement>(null);
 
   const [isScrolled, setIsScrolled] = useState(false);
@@ -787,9 +794,6 @@ export default function Layout() {
       if (languageRef.current && !languageRef.current.contains(target)) {
         setIsLanguageOpen(false);
       }
-      if (themeRef.current && !themeRef.current.contains(target)) {
-        setIsThemeOpen(false);
-      }
       if (notificationsRef.current && !notificationsRef.current.contains(target)) {
         setIsNotificationsOpen(false);
       }
@@ -804,7 +808,25 @@ export default function Layout() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  // Direct URL access restriction for unverified Google users on Invest and Fund
+  useEffect(() => {
+    if (user && isIncompleteGoogleUser) {
+      if (location.pathname.startsWith('/invest') || location.pathname.startsWith('/fund')) {
+        navigate('/home', { replace: true });
+        openVerificationPrompt("Please verify your account to access this feature.");
+      }
+    }
+  }, [location.pathname, user, isIncompleteGoogleUser, navigate, openVerificationPrompt]);
+
   const handleNavigation = (path: string) => {
+    // Intercept Invest and Fund for unverified Google users
+    if (user && isGoogleProfileIncomplete(user, profile)) {
+      if (path.startsWith('/invest') || path.startsWith('/fund')) {
+        openVerificationPrompt("Please verify your account to access this feature.");
+        return;
+      }
+    }
+
     if (location.pathname === '/home' || location.pathname === '/dashboard') {
       sessionStorage.setItem('lastMainRoute', location.pathname);
     }
@@ -813,12 +835,12 @@ export default function Layout() {
     setIsProfileOpen(false);
     setIsNotificationsOpen(false);
     setIsLanguageOpen(false);
-    setIsThemeOpen(false);
     setIsHelpDropdownOpen(false);
   };
 
   const isCipher = profile?.role === 'cipher';
-  const isVerified = user?.emailVerified || isCipher;
+  const isGoogleUser = Boolean(profile?.is_google_user || user?.providerData?.some(p => p.providerId === 'google.com'));
+  const isVerified = user?.emailVerified || profile?.email_verified || isGoogleUser || isCipher;
 
   if (user && !isVerified) {
     return (
@@ -851,16 +873,21 @@ export default function Layout() {
     );
   }
 
+  const isVerificationPage = location.pathname === '/profile' && isIncompleteGoogleUser;
+
   return (
     <div 
       className={cn(
-        "min-h-screen flex flex-col font-sans transition-colors duration-500 bg-cover bg-center bg-no-repeat bg-fixed",
-        isDark ? "bg-aura-black text-white" : "bg-white text-slate-900"
+        "min-h-screen flex flex-col font-sans transition-colors duration-500",
+        isDark ? "bg-aura-black text-white" : (isVerificationPage ? "bg-[#f8fafc] text-slate-900" : "bg-white text-slate-900"),
+        !isVerificationPage && "bg-cover bg-center bg-no-repeat bg-fixed"
       )}
       style={{
         backgroundImage: isDark
           ? "linear-gradient(rgba(5, 5, 5, 0.94), rgba(5, 5, 5, 0.94)), url('https://i.imgur.com/wCxGTKx.png')"
-          : "linear-gradient(rgba(248, 250, 252, 0.95), rgba(248, 250, 252, 0.95)), url('https://i.imgur.com/wCxGTKx.png')"
+          : isVerificationPage
+            ? "radial-gradient(at 50% 0%, rgba(0, 158, 66, 0.04) 0px, transparent 65%)"
+            : "linear-gradient(rgba(248, 250, 252, 0.95), rgba(248, 250, 252, 0.95)), url('https://i.imgur.com/wCxGTKx.png')"
       }}
     >
       {/* --- TOP NAVBAR --- */}
@@ -1106,114 +1133,24 @@ export default function Layout() {
           {/* Theme, Language, Telegram, and Support: Only rendered in CGA Beta */}
           {isBeta && (
             <>
-              {/* Theme Selector Control */}
-              <div className="relative" ref={themeRef}>
-                <button 
-                  onClick={() => setIsThemeOpen(!isThemeOpen)}
-                  className={cn(
-                    "w-9 h-9 flex items-center justify-center rounded-xl transition-all shadow-[0_4px_12px_rgba(0,0,0,0.15)] active:scale-95",
-                    isDark 
-                      ? "bg-white/[0.04] border border-white/5 text-amber-300 hover:text-amber-200 hover:bg-white/[0.08] hover:border-white/10" 
-                      : "bg-slate-100 border border-slate-200 text-amber-600 hover:text-amber-500 hover:bg-slate-200"
-                  )}
-                  title={`Theme: ${theme === 'system' ? `System (${effectiveTheme === 'dark' ? 'Dark' : 'Light'})` : theme === 'dark' ? 'Dark' : 'Light'}`}
-                  aria-label={`Theme: ${theme === 'system' ? `System (${effectiveTheme === 'dark' ? 'Dark' : 'Light'})` : theme === 'dark' ? 'Dark' : 'Light'}`}
-                >
-                  {effectiveTheme === 'dark' ? (
-                    <Moon size={18} className="transition-transform duration-300 hover:scale-110" />
-                  ) : (
-                    <Sun size={18} className="transition-transform duration-300 hover:scale-110" />
-                  )}
-                </button>
-
-                <AnimatePresence>
-                  {isThemeOpen && (
-                    <motion.div
-                      initial={{ opacity: 0, y: 10, scale: 0.95 }}
-                      animate={{ opacity: 1, y: 0, scale: 1 }}
-                      exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                      style={{ willChange: 'transform, opacity' }}
-                      className={cn(
-                        "absolute top-full right-0 mt-2 w-48 rounded-2xl border shadow-2xl z-[110] overflow-hidden backdrop-blur-xl p-1.5 space-y-1",
-                        isDark ? "bg-[#11141b]/95 border-white/10" : "bg-white/95 border-aura-line shadow-lg"
-                      )}
-                    >
-                      <div className={cn(
-                        "px-3 py-1.5 text-[9px] font-black uppercase tracking-[0.25em] border-b mb-1",
-                        isDark ? "text-aura-muted border-white/5" : "text-slate-400 border-slate-100"
-                      )}>
-                        Theme Preference
-                      </div>
-
-                      {/* System Option */}
-                      <button
-                        onClick={() => {
-                          setTheme('system');
-                          setIsThemeOpen(false);
-                        }}
-                        className={cn(
-                          "flex items-center justify-between w-full px-3 py-2.5 rounded-xl text-xs font-semibold tracking-wide transition-all",
-                          theme === 'system'
-                            ? "bg-primary text-aura-black shadow-md shadow-primary/20 font-bold"
-                            : isDark
-                              ? "text-aura-muted hover:text-white hover:bg-white/5"
-                              : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
-                        )}
-                      >
-                        <div className="flex items-center gap-2.5">
-                          <Monitor size={15} />
-                          <span className="text-[11px] font-bold uppercase tracking-wider">System</span>
-                        </div>
-                        {theme === 'system' && <CheckCircle2 size={13} className="text-current" />}
-                      </button>
-
-                      {/* Light Option */}
-                      <button
-                        onClick={() => {
-                          setTheme('light');
-                          setIsThemeOpen(false);
-                        }}
-                        className={cn(
-                          "flex items-center justify-between w-full px-3 py-2.5 rounded-xl text-xs font-semibold tracking-wide transition-all",
-                          theme === 'light'
-                            ? "bg-primary text-aura-black shadow-md shadow-primary/20 font-bold"
-                            : isDark
-                              ? "text-aura-muted hover:text-white hover:bg-white/5"
-                              : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
-                        )}
-                      >
-                        <div className="flex items-center gap-2.5">
-                          <Sun size={15} />
-                          <span className="text-[11px] font-bold uppercase tracking-wider">Light</span>
-                        </div>
-                        {theme === 'light' && <CheckCircle2 size={13} className="text-current" />}
-                      </button>
-
-                      {/* Dark Option */}
-                      <button
-                        onClick={() => {
-                          setTheme('dark');
-                          setIsThemeOpen(false);
-                        }}
-                        className={cn(
-                          "flex items-center justify-between w-full px-3 py-2.5 rounded-xl text-xs font-semibold tracking-wide transition-all",
-                          theme === 'dark'
-                            ? "bg-primary text-aura-black shadow-md shadow-primary/20 font-bold"
-                            : isDark
-                              ? "text-aura-muted hover:text-white hover:bg-white/5"
-                              : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
-                        )}
-                      >
-                        <div className="flex items-center gap-2.5">
-                          <Moon size={15} />
-                          <span className="text-[11px] font-bold uppercase tracking-wider">Dark</span>
-                        </div>
-                        {theme === 'dark' && <CheckCircle2 size={13} className="text-current" />}
-                      </button>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
+              {/* Theme Toggle Control */}
+              <button 
+                onClick={toggleTheme}
+                className={cn(
+                  "w-9 h-9 flex items-center justify-center rounded-xl transition-all shadow-[0_4px_12px_rgba(0,0,0,0.15)] active:scale-95",
+                  isDark 
+                    ? "bg-white/[0.04] border border-white/5 text-amber-300 hover:text-amber-200 hover:bg-white/[0.08] hover:border-white/10" 
+                    : "bg-slate-100 border border-slate-200 text-amber-600 hover:text-amber-500 hover:bg-slate-200"
+                )}
+                title={isDark ? "Switch to Light Mode" : "Switch to Dark Mode"}
+                aria-label={isDark ? "Switch to Light Mode" : "Switch to Dark Mode"}
+              >
+                {effectiveTheme === 'dark' ? (
+                  <Moon size={18} className="transition-transform duration-300 hover:scale-110" />
+                ) : (
+                  <Sun size={18} className="transition-transform duration-300 hover:scale-110" />
+                )}
+              </button>
 
               <div className="relative" ref={languageRef}>
                 <button 
@@ -1265,18 +1202,14 @@ export default function Layout() {
               </div>
 
               <a
-                href="https://t.me/cga_help"
+                href={CGA_WHATSAPP_SUPPORT_URL}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="p-1.5 transition-all flex items-center justify-center cursor-pointer hover:scale-110 active:scale-95 text-[#229ED9]"
-                title="Telegram Support"
+                className="p-1.5 transition-all flex items-center justify-center cursor-pointer hover:scale-110 active:scale-95"
+                title="WhatsApp Support"
+                aria-label="WhatsApp Support"
               >
-                <svg 
-                  viewBox="0 0 24 24" 
-                  className="w-5.5 h-5.5 flex-shrink-0 filter drop-shadow-[0_1.5px_3px_rgba(0,0,0,0.3)] fill-current"
-                >
-                  <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-1-.65-.35-1 .22-1.58.15-.15 2.71-2.48 2.76-2.69.01-.03.01-.14-.07-.2-.08-.06-.19-.04-.27-.02-.12.02-1.96 1.24-5.54 3.65-.52.36-.97.53-1.33.52-.4-.01-1.17-.23-1.74-.41-.7-.23-1.26-.35-1.21-.74.03-.2.29-.41.79-.62 3.09-1.34 5.15-2.23 6.19-2.67 2.94-1.24 3.55-1.45 3.95-1.46.09 0 .28.02.4.12.1.08.13.19.14.28-.01.07.01.21 0 .31z" />
-                </svg>
+                <WhatsAppIcon className="w-5.5 h-5.5 flex-shrink-0 filter drop-shadow-[0_1.5px_3px_rgba(0,0,0,0.3)]" />
               </a>
 
               <button 
@@ -1568,6 +1501,24 @@ export default function Layout() {
       />
 
       <LegacyUpgradeModal />
+
+      {/* Account Verification Prompt Modal */}
+      <VerificationPromptModal
+        isOpen={isVerificationPromptOpen}
+        onClose={closeVerificationPrompt}
+        message={verificationPromptMessage}
+        onVerify={() => {
+          closeVerificationPrompt();
+          handleNavigation('/profile');
+        }}
+      />
+
+      {/* Account Verification Success Modal */}
+      <VerificationSuccessModal
+        isOpen={isVerificationSuccessOpen}
+        onClose={closeVerificationSuccess}
+        avatarUrl={verificationSuccessAvatar || profile?.photoURL || user?.photoURL}
+      />
 
       {/* Global Dynamic Adverts Overlay System */}
       <AnimatePresence>

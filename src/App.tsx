@@ -100,8 +100,10 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   // Check if we just came from a successful login that reloaded the user
   const isVerifiedFromState = location.state?.verified === true;
   const isCipher = isCipherAdmin(user) || (auth.currentUser && isCipherAdmin(auth.currentUser)) || profile?.role === 'cipher';
+  const isGoogleUser = Boolean(profile?.is_google_user || user?.providerData?.some(p => p.providerId === 'google.com'));
+  const isVerified = user?.emailVerified || auth.currentUser?.emailVerified || profile?.email_verified || isGoogleUser || isVerifiedFromState || isCipher;
 
-  if (!user?.emailVerified && !auth.currentUser?.emailVerified && !isVerifiedFromState && !isCipher) {
+  if (!isVerified) {
      return <Navigate to="/welcome" replace />;
   }
 

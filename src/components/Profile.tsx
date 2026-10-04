@@ -42,6 +42,7 @@ import { normalizePhoneNumber } from '../utils/phone';
 import { getAccountCountryName } from '../services/paymentRouting';
 import { isGoogleProfileIncomplete } from '../utils/googleProfile';
 import GoogleProfileCompletion from './GoogleProfileCompletion';
+import PremiumLoader from './PremiumLoader';
 
 const compressImage = (dataUrl: string, maxWidth = 400, maxHeight = 400): Promise<string> => {
   return new Promise((resolve) => {
@@ -77,23 +78,11 @@ const compressImage = (dataUrl: string, maxWidth = 400, maxHeight = 400): Promis
 };
 
 export default function Profile() {
-  const { user, profile, logout } = useAuth();
-  const { openTransferModal } = useUI();
+  const { user, profile, loading, logout } = useAuth();
+  const { openTransferModal, openVerificationPrompt } = useUI();
   const { isBeta, toggleMode } = useMode();
   const navigate = useNavigate();
 
-  // If user signed in via Google and profile is incomplete, show the completion view
-  if (user && isGoogleProfileIncomplete(user, profile)) {
-    return (
-      <GoogleProfileCompletion 
-        user={user} 
-        profile={profile} 
-        onComplete={() => {
-          sessionStorage.setItem('google_profile_tooltip_dismissed', 'true');
-        }} 
-      />
-    );
-  }
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [showPhotoModal, setShowPhotoModal] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
@@ -109,6 +98,11 @@ export default function Profile() {
   const [editPhotoURL, setEditPhotoURL] = useState('');
   const [showWarningModal, setShowWarningModal] = useState(false);
 
+  // Single authoritative completion mode flag initialized once profile is verified/loaded.
+  // By maintaining this state during the completion visit, we prevent the race condition
+  // where the normal Profile page would prematurely flash on-screen before the success modal.
+  const [isVerificationFlowActive, setIsVerificationFlowActive] = useState<boolean | null>(null);
+
   const userCountry = getAccountCountryName(profile) || profile?.country || profile?.countryName || 'Not specified';
 
   React.useEffect(() => {
@@ -118,6 +112,32 @@ export default function Profile() {
       setEditPhotoURL(profile.photoURL || '');
     }
   }, [profile]);
+
+  React.useEffect(() => {
+    if (isVerificationFlowActive === null && user && !loading && profile) {
+      const incomplete = isGoogleProfileIncomplete(user, profile);
+      setIsVerificationFlowActive(incomplete);
+    }
+  }, [isVerificationFlowActive, user, loading, profile]);
+
+  // If user or profile is not yet resolved in auth, show PremiumLoader
+  if (!user || loading || !profile || isVerificationFlowActive === null) {
+    return <PremiumLoader />;
+  }
+
+  // If this visit started with an incomplete Google profile, retain GoogleProfileCompletion
+  // until the user confirms the verification success modal and navigates to Home.
+  if (isVerificationFlowActive) {
+    return (
+      <GoogleProfileCompletion 
+        user={user} 
+        profile={profile} 
+        onComplete={() => {
+          sessionStorage.setItem('google_profile_tooltip_dismissed', 'true');
+        }} 
+      />
+    );
+  }
 
   const handleSaveProfile = async () => {
     if (!profile?.uid) return;
@@ -665,6 +685,10 @@ export default function Profile() {
 
             <button
               onClick={() => {
+                if (!isBeta && user && isGoogleProfileIncomplete(user, profile)) {
+                  openVerificationPrompt("Please complete your account verification to access CGA Beta.");
+                  return;
+                }
                 toggleMode(() => {
                   navigate('/home');
                 });

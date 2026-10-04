@@ -372,10 +372,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         funding_balance: 0,
         available_balance: 0,
         total_earnings: 0,
-        total_invested: 10,
+        total_invested: isGoogle ? (recoveredPhone && recoveredPhone.length >= 5 ? 10 : 0) : 10,
         email_verified: Boolean(targetUser.emailVerified || isCipher),
         profile_completed: isGoogle ? Boolean(recoveredPhone && recoveredPhone.length >= 5) : true,
         is_google_user: Boolean(isGoogle),
+        bonus_credited: isGoogle ? Boolean(recoveredPhone && recoveredPhone.length >= 5) : true,
         suspended: false,
         banned: false,
         roi_disabled: false,
@@ -396,15 +397,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         await upsertUserDocRest(uid, healedProfile, token, 5000);
       }
 
-      const txId = `signup-bonus-${uid}`;
-      setDoc(doc(db, 'transactions', txId), {
-        user_id: uid,
-        type: 'signup_bonus',
-        amount: 10,
-        created_at: nowIso,
-        status: 'approved',
-        description: "Congratulations, you have just received a $10 signup bonus into your assets balance."
-      }).catch(() => {});
+      const isEligibleForBonus = !isGoogle || Boolean(recoveredPhone && recoveredPhone.length >= 5);
+      if (isEligibleForBonus) {
+        const txId = `signup-bonus-${uid}`;
+        setDoc(doc(db, 'transactions', txId), {
+          user_id: uid,
+          type: 'signup_bonus',
+          amount: 10,
+          created_at: nowIso,
+          status: 'approved',
+          description: "Congratulations, you have just received a $10 signup bonus into your assets balance."
+        }).catch(() => {});
+      }
 
       try {
         localStorage.removeItem(`pending_signup_${uid}`);

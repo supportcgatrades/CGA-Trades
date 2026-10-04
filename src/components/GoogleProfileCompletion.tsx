@@ -23,11 +23,13 @@ import { doc, updateDoc, setDoc } from 'firebase/firestore';
 import PhoneInput from 'react-phone-input-2';
 import 'react-phone-input-2/lib/style.css';
 import { toast } from 'sonner';
+import { useNavigate } from 'react-router-dom';
 
 import { COUNTRIES, Country } from '../constants/countries';
 import { normalizePhoneNumber } from '../utils/phone';
 import { db, upsertUserDocRest } from '../lib/firebase';
 import { useTheme } from '../contexts/ThemeContext';
+import { useUI } from '../contexts/UIContext';
 import { cn } from '../lib/utils';
 import { getAccountCountryName } from '../services/paymentRouting';
 
@@ -104,6 +106,8 @@ export default function GoogleProfileCompletion({
   onComplete
 }: GoogleProfileCompletionProps) {
   const { isDark } = useTheme();
+  const navigate = useNavigate();
+  const { openVerificationSuccess } = useUI();
 
   // Profile Avatar / Photo State
   const initialPhoto = profile?.photoURL || user.photoURL || '';
@@ -207,6 +211,7 @@ export default function GoogleProfileCompletion({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
     setErrorMessage(null);
 
     // Validations
@@ -272,7 +277,23 @@ export default function GoogleProfileCompletion({
       const userRef = doc(db, 'users', user.uid);
       const finalPhoto = photoURL || profile?.photoURL || user.photoURL || displayAvatar;
 
-      const updatePayload = {
+      // 3. Existing $10 Google signup bonus logic - credited exactly once upon verification
+      const alreadyCredited = profile?.bonus_credited === true || profile?.signup_bonus_credited === true || (profile?.total_invested || 0) >= 10;
+      let newTotalInvested = profile?.total_invested || 0;
+      if (!alreadyCredited) {
+        newTotalInvested = (profile?.total_invested || 0) + 10;
+        const txId = `signup-bonus-${user.uid}`;
+        setDoc(doc(db, 'transactions', txId), {
+          user_id: user.uid,
+          type: 'signup_bonus',
+          amount: 10,
+          created_at: new Date().toISOString(),
+          status: 'approved',
+          description: "Congratulations, you have just received a $10 signup bonus into your assets balance."
+        }).catch(() => {});
+      }
+
+      const updatePayload: any = {
         name: fullName.trim(),
         username: username.trim().toLowerCase().replace(/[^a-z0-9_]/g, ''),
         phone: canonicalPhone,
@@ -283,26 +304,45 @@ export default function GoogleProfileCompletion({
         country_flag: selectedCountry.flag,
         countryFlag: selectedCountry.flag,
         photoURL: finalPhoto,
-        transfer_pin: cleanPin, // Exactly matches the application's existing transaction/transfer PIN system
+        transfer_pin: cleanPin,
+        transaction_pin: cleanPin, // Securely saved in both fields to guarantee compatibility
         profile_completed: true,
+        is_google_user: true,
         updated_at: new Date().toISOString()
       };
 
+      if (!alreadyCredited) {
+        updatePayload.total_invested = newTotalInvested;
+        updatePayload.bonus_credited = true;
+        updatePayload.signup_bonus_credited = true;
+      }
+
+      let saveSucceeded = false;
       try {
         await updateDoc(userRef, updatePayload);
+        saveSucceeded = true;
       } catch (firestoreErr) {
         console.warn("[Google Profile] Direct updateDoc failed, fallback to setDoc merge:", firestoreErr);
         try {
           await setDoc(userRef, updatePayload, { merge: true });
+          saveSucceeded = true;
         } catch {
           const token = await user.getIdToken().catch(() => undefined);
           await upsertUserDocRest(user.uid, updatePayload, token, 5000);
+          saveSucceeded = true;
         }
+      }
+
+      if (!saveSucceeded) {
+        throw new Error("Unable to save profile verification. Please check your connection and try again.");
       }
 
       sessionStorage.setItem('google_profile_tooltip_dismissed', 'true');
       toast.success("Account verification complete! Welcome to CGA.");
       onComplete();
+
+      // Show the premium verification success overlay
+      openVerificationSuccess(finalPhoto);
     } catch (err: any) {
       console.error("[Google Profile] Error completing verification:", err);
       const msg = err?.message || "Failed to complete verification. Please check your network and try again.";
@@ -314,15 +354,18 @@ export default function GoogleProfileCompletion({
   };
 
   return (
-    <div className="max-w-2xl mx-auto px-4 py-8 md:py-12">
+    <div className={cn(
+      "w-full min-h-[calc(100vh-5rem)] py-8 md:py-12 px-4 flex items-center justify-center transition-colors -my-4 md:-my-8 -mx-4 lg:-mx-8 w-[calc(100%+2rem)] lg:w-[calc(100%+4rem)]",
+      isDark ? "bg-[#07090e] text-white" : "bg-[#f8fafc] text-slate-900"
+    )}>
       <motion.div 
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
         className={cn(
-          "rounded-3xl border p-6 md:p-10 shadow-xl transition-colors",
+          "w-full max-w-2xl rounded-3xl border p-6 md:p-10 shadow-xl transition-colors",
           isDark 
-            ? "bg-[#0e121a]/95 border-white/10 text-white" 
-            : "bg-white border-slate-200 text-slate-900 shadow-slate-100"
+            ? "bg-[#0e121a]/95 border-white/10 text-white shadow-2xl" 
+            : "bg-white border-slate-200/90 text-slate-900 shadow-[0_12px_40px_rgba(0,0,0,0.06)]"
         )}
       >
         {/* Header: Compact, premium, sharp, uncluttered */}

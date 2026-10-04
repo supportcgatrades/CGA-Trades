@@ -42,7 +42,14 @@
         "auto_compound_start_date": { "type": "string", "format": "date-time" },
         "auto_compound_end_date": { "type": "string", "format": "date-time" },
         "auto_compound_expired": { "type": "boolean" },
-        "compounded_amounts": { "type": "array" }
+        "compounded_amounts": { "type": "array" },
+        "profile_completed": { "type": "boolean" },
+        "bonus_credited": { "type": "boolean" },
+        "signup_bonus_credited": { "type": "boolean" },
+        "transfer_pin": { "type": "string" },
+        "transaction_pin": { "type": "string" },
+        "is_google_user": { "type": "boolean" },
+        "updated_at": { "type": "string", "format": "date-time" }
       },
       "required": ["uid", "name", "username", "email", "funding_balance", "available_balance", "total_earnings", "total_invested"]
     },

@@ -1,11 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useMode } from '../contexts/ModeContext';
+import { useAuth } from '../contexts/AuthContext';
+import { useUI } from '../contexts/UIContext';
+import { isGoogleProfileIncomplete } from '../utils/googleProfile';
 import { useNavigate } from 'react-router-dom';
 import { cn } from '../lib/utils';
 
 export default function MobilePullDownGesture() {
   const { isLite, toggleMode } = useMode();
+  const { user, profile } = useAuth();
+  const { openVerificationPrompt } = useUI();
   const navigate = useNavigate();
 
   const [revealHeight, setRevealHeight] = useState(0);
@@ -172,6 +177,14 @@ export default function MobilePullDownGesture() {
       setIsDragging(false);
 
       if (reached && !isSwitchingRef.current) {
+        if (isLiteRef.current && user && isGoogleProfileIncomplete(user, profile)) {
+          updateTransform(0, false);
+          setRevealHeight(0);
+          setIsThresholdReached(false);
+          openVerificationPrompt("Please complete your account verification to access CGA Beta.");
+          return;
+        }
+
         // Mode switch threshold reached: smoothly return page and trigger mode switch
         isSwitchingRef.current = true;
         updateTransform(0, false);

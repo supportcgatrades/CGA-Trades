@@ -595,14 +595,24 @@ export default function Invest() {
             className="space-y-10 w-full"
           >
             {/* Slim Header Banner with Parallax Zoom and Overlay Content */}
-            <div className="relative -mx-6 -mt-8 mb-8 h-[140px] sm:h-[180px] md:h-[220px] overflow-hidden bg-white dark:bg-[#050608] border-b border-slate-200/80 dark:border-white/5 select-none group/header">
-              {/* Light Mode subtle emerald & green ambient accents */}
-              <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/[0.08] via-white/80 to-emerald-500/[0.03] dark:hidden" />
-              <div className="absolute top-0 right-1/4 w-80 h-80 bg-[#009e42]/10 rounded-full blur-3xl pointer-events-none dark:hidden" />
+            <div className="relative -mx-6 -mt-8 mb-8 h-[140px] sm:h-[180px] md:h-[220px] overflow-hidden bg-white dark:bg-[#050608] border-b border-slate-200/90 dark:border-white/5 select-none group/header">
+              {/* Light Mode: Clean, premium, intentional background with subtle CGA green accents */}
+              <div className="dark:hidden absolute inset-0 bg-gradient-to-b from-[#f8fafc] via-[#f1f5f9]/70 to-[#eef2f6]/50">
+                {/* Subtle radial emerald glow at top center */}
+                <div className="absolute inset-0 bg-[radial-gradient(ellipse_70%_65%_at_50%_-15%,rgba(0,158,66,0.08),transparent_70%)]" />
+                {/* Ambient luminous soft green spheres */}
+                <div className="absolute -top-10 left-1/4 w-72 h-72 bg-[#009e42]/[0.05] rounded-full blur-3xl pointer-events-none" />
+                <div className="absolute top-2 right-1/4 w-80 h-80 bg-emerald-500/[0.04] rounded-full blur-3xl pointer-events-none" />
+                {/* Crisp subtle micro-dot grid for depth */}
+                <div className="absolute inset-0 bg-[radial-gradient(rgba(0,158,66,0.06)_1px,transparent_1px)] [background-size:24px_24px] opacity-40 pointer-events-none" />
+                {/* Soft bottom edge border accent */}
+                <div className="absolute bottom-0 inset-x-0 h-6 bg-gradient-to-t from-slate-200/40 to-transparent" />
+              </div>
 
+              {/* Dark Mode: Preserved original parallax background image and dark gradient overlay */}
               <motion.div 
                 style={{ scale: headerScale, y: headerY, opacity: headerOpacity }}
-                className="absolute inset-0 w-full h-full"
+                className="hidden dark:block absolute inset-0 w-full h-full"
               >
                 <img 
                   src={investHeaderBg} 
@@ -610,25 +620,11 @@ export default function Invest() {
                   loading="eager"
                   fetchPriority="high"
                   decoding="async"
-                  className="w-full h-full object-cover select-none transition-all duration-300 opacity-30 dark:opacity-100 brightness-[1.05] contrast-[1.05] dark:brightness-[0.6] dark:contrast-[1.1]"
+                  className="w-full h-full object-cover select-none brightness-[0.6] contrast-[1.1]"
                   referrerPolicy="no-referrer"
                 />
-                {/* Light Mode: White/light fade; Dark Mode: Existing deep dark gradient */}
-                <div className="absolute inset-0 bg-gradient-to-t from-white via-white/60 to-transparent dark:from-[#050608] dark:via-[#050608]/40 dark:to-black/30 transition-colors duration-300" />
+                <div className="absolute inset-0 bg-gradient-to-t from-[#050608] via-[#050608]/40 dark:to-black/30 transition-colors duration-300" />
               </motion.div>
-              
-              {/* Floating Back Button */}
-              <div className="absolute top-4 left-6 z-30">
-                <button 
-                  onClick={() => {
-                    const backRoute = sessionStorage.getItem('lastMainRoute') || '/dashboard';
-                    navigate(backRoute);
-                  }} 
-                  className="p-2 bg-white/85 hover:bg-white hover:scale-105 border border-slate-200/90 hover:border-slate-300 text-slate-700 shadow-sm dark:bg-black/60 dark:hover:bg-black/85 dark:border-white/10 dark:hover:border-white/20 dark:text-white/80 rounded-xl transition-all cursor-pointer flex items-center justify-center shrink-0"
-                >
-                  <ArrowLeft size={14} />
-                </button>
-              </div>
 
               {/* Title & Subtitle Overlay */}
               <div className="absolute inset-0 flex flex-col justify-center items-center z-20 px-6 text-center">
@@ -638,7 +634,7 @@ export default function Invest() {
                   transition={{ duration: 0.6, ease: "easeOut" }}
                   className="space-y-1.5"
                 >
-                  <h1 className="text-xl sm:text-2xl md:text-4xl font-black uppercase tracking-[0.15em] text-slate-900 dark:text-white font-sans drop-shadow-sm dark:drop-shadow-[0_4px_12px_rgba(0,0,0,0.6)]">
+                  <h1 className="text-xl sm:text-2xl md:text-4xl font-black uppercase tracking-[0.15em] text-slate-900 dark:text-white font-sans drop-shadow-none dark:drop-shadow-[0_4px_12px_rgba(0,0,0,0.6)]">
                     Investment <span className="text-[#009e42]">Plans</span>
                   </h1>
                   <p className="text-[10px] sm:text-xs md:text-sm text-slate-600 dark:text-white/60 font-medium tracking-wide max-w-xl mx-auto drop-shadow-none dark:drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)]">
