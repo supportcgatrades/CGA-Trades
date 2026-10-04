@@ -121,7 +121,7 @@ service cloud.firestore {
                           'auto_compound_enabled', 'auto_compound_duration', 'auto_compound_start_date',
                           'auto_compound_end_date', 'auto_compound_expired', 'compounded_amounts',
                           'migration_status', 'original_assets_before_upgrade', 'remaining_upgraded_assets',
-                          'active_robot', 'profile_completed', 'bonus_credited', 'signup_bonus_credited',
+                          'active_robot', 'unlocked_robots', 'profile_completed', 'bonus_credited', 'signup_bonus_credited',
                           'updated_at', 'is_google_user'
                         ])) ||
                        (isSignedIn() && existing().get('referred_by', '') == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['last_rebook'])) ||

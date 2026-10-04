@@ -14,27 +14,9 @@ interface ThemeContextType {
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
-const THEME_STORAGE_KEY = 'theme';
-
 function getSystemTheme(): EffectiveTheme {
   if (typeof window === 'undefined') return 'dark';
   return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-}
-
-function getInitialTheme(): { effective: EffectiveTheme; explicit: 'light' | 'dark' | null } {
-  const systemTheme = getSystemTheme();
-  if (typeof window === 'undefined') {
-    return { effective: systemTheme, explicit: null };
-  }
-  try {
-    const saved = localStorage.getItem(THEME_STORAGE_KEY);
-    if (saved === 'light' || saved === 'dark') {
-      return { effective: saved, explicit: saved };
-    }
-  } catch (e) {
-    console.warn("Theme storage read warning:", e);
-  }
-  return { effective: systemTheme, explicit: null };
 }
 
 function applyThemeClasses(effective: EffectiveTheme) {
@@ -52,67 +34,65 @@ function applyThemeClasses(effective: EffectiveTheme) {
 }
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  // Device/system theme is the default when no explicit choice has been made
-  const [initial] = useState(() => getInitialTheme());
-  const [explicitPreference, setExplicitPreference] = useState<'light' | 'dark' | null>(initial.explicit);
-  const [effectiveTheme, setEffectiveTheme] = useState<EffectiveTheme>(initial.effective);
+  // Device/system theme is ALWAYS the authoritative default on fresh load/refresh
+  // No persistence in localStorage, sessionStorage, cookies, IndexedDB, or database.
+  const [effectiveTheme, setEffectiveTheme] = useState<EffectiveTheme>(() => {
+    // Clear any legacy persisted keys so reload always strictly honors device theme
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.removeItem('theme');
+        sessionStorage.removeItem('theme');
+      } catch {}
+    }
+    return getSystemTheme();
+  });
 
-  const theme: ThemePreference = explicitPreference || 'system';
+  // Track if user explicitly toggled during this runtime session
+  const [isManualOverride, setIsManualOverride] = useState(false);
 
+  const theme: ThemePreference = isManualOverride ? effectiveTheme : 'system';
+
+  // Manual theme setter (runtime override only for current session)
   const setTheme = useCallback((newTheme: ThemePreference) => {
     if (newTheme === 'system') {
-      setExplicitPreference(null);
-      try {
-        localStorage.removeItem(THEME_STORAGE_KEY);
-      } catch (e) {}
+      setIsManualOverride(false);
       const sys = getSystemTheme();
       setEffectiveTheme(sys);
       applyThemeClasses(sys);
     } else {
-      setExplicitPreference(newTheme);
-      try {
-        localStorage.setItem(THEME_STORAGE_KEY, newTheme);
-      } catch (e) {}
+      setIsManualOverride(true);
       setEffectiveTheme(newTheme);
       applyThemeClasses(newTheme);
     }
   }, []);
 
+  // Manual toggle (runtime override only for current session)
   const toggleTheme = useCallback(() => {
+    setIsManualOverride(true);
     setEffectiveTheme((prev) => {
       const next: EffectiveTheme = prev === 'dark' ? 'light' : 'dark';
-      setExplicitPreference(next);
-      try {
-        localStorage.setItem(THEME_STORAGE_KEY, next);
-      } catch (e) {}
       applyThemeClasses(next);
       return next;
     });
   }, []);
 
-  // Synchronize initial theme classes on mount
+  // Synchronize theme classes on mount
   useEffect(() => {
     applyThemeClasses(effectiveTheme);
-  }, []);
+  }, [effectiveTheme]);
 
   // Listen for device / system appearance changes live while app is running
+  // Automatically updates the application immediately when device theme changes
   useEffect(() => {
     if (typeof window === 'undefined' || !window.matchMedia) return;
     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
 
     const handleSystemThemeChange = (e: MediaQueryListEvent | MediaQueryList) => {
-      let hasExplicit = false;
-      try {
-        const saved = localStorage.getItem(THEME_STORAGE_KEY);
-        hasExplicit = saved === 'light' || saved === 'dark';
-      } catch {}
-
-      // If no explicit preference has been saved by the user, follow system theme changes live
-      if (!hasExplicit) {
-        const newEffective: EffectiveTheme = e.matches ? 'dark' : 'light';
-        setEffectiveTheme(newEffective);
-        applyThemeClasses(newEffective);
-      }
+      const newEffective: EffectiveTheme = e.matches ? 'dark' : 'light';
+      // Device theme changes take immediate effect
+      setIsManualOverride(false);
+      setEffectiveTheme(newEffective);
+      applyThemeClasses(newEffective);
     };
 
     if (mediaQuery.addEventListener) {
@@ -153,3 +133,4 @@ export function useTheme() {
   }
   return context;
 }
+

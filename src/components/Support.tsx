@@ -1232,7 +1232,7 @@ function ContactCard({ icon, label, value, href, brandColor = "text-blue-500", b
       href={href}
       target="_blank"
       rel="noopener noreferrer"
-      className="bg-white/80 dark:bg-white/5 border border-slate-200 dark:border-white/10 p-5 rounded-2xl flex items-center justify-between group hover:border-[#009e42]/40 hover:bg-white dark:hover:bg-white/[0.02] shadow-sm hover:shadow-md transition-all backdrop-blur-sm"
+      className="bg-white dark:bg-[#0c1017] border border-slate-200 dark:border-white/10 p-5 rounded-2xl flex items-center justify-between group hover:border-[#009e42]/40 hover:bg-slate-50 dark:hover:bg-[#121824] shadow-sm hover:shadow-md transition-all backdrop-blur-sm"
     >
       <div className="flex items-center gap-3.5 min-w-0">
         <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform", bgColor, brandColor)}>
@@ -1240,10 +1240,10 @@ function ContactCard({ icon, label, value, href, brandColor = "text-blue-500", b
         </div>
         <div className="min-w-0 truncate">
           <p className="text-[9px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest leading-none mb-1">{label}</p>
-          <p className="text-xs font-black text-slate-900 dark:text-slate-100 tracking-tight truncate">{value}</p>
+          <p className="text-xs font-black text-slate-900 dark:text-white tracking-tight truncate">{value}</p>
         </div>
       </div>
-      <ExternalLink size={14} className="text-slate-400 dark:text-slate-500 group-hover:text-emerald-500 transition-colors shrink-0 ml-2" />
+      <ExternalLink size={14} className="text-slate-400 dark:text-slate-300 group-hover:text-emerald-500 transition-colors shrink-0 ml-2" />
     </a>
   );
 }
@@ -1263,27 +1263,27 @@ function EmailCard({ email, label }: { email: string; label: string }) {
   return (
     <a 
       href={`mailto:${email}`}
-      className="bg-white/80 dark:bg-gradient-to-br dark:from-white/[0.03] dark:to-white/[0.01] border border-slate-200 dark:border-white/10 p-5 rounded-2xl flex items-center justify-between group hover:border-blue-500/40 hover:bg-white dark:hover:bg-white/[0.02] shadow-sm hover:shadow-md transition-all backdrop-blur-sm relative overflow-hidden"
+      className="bg-white dark:bg-[#0c1017] border border-slate-200 dark:border-white/10 p-5 rounded-2xl flex items-center justify-between group hover:border-blue-500/40 hover:bg-slate-50 dark:hover:bg-[#121824] shadow-sm hover:shadow-md transition-all backdrop-blur-sm relative overflow-hidden"
     >
       <div className="flex items-center gap-3.5 min-w-0">
-        <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 bg-blue-500/10 text-blue-600 dark:text-blue-400 group-hover:scale-110 transition-transform">
-          <Mail size={18} />
+        <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 bg-blue-500/10 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400 group-hover:scale-110 transition-transform">
+          <Mail size={18} className="text-blue-600 dark:text-blue-400 shrink-0" />
         </div>
         <div className="min-w-0">
           <p className="text-[9px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest leading-none mb-1">{label}</p>
-          <p className="text-xs font-black text-slate-900 dark:text-slate-100 tracking-tight truncate select-all">{email}</p>
+          <p className="text-xs font-black text-slate-900 dark:text-white tracking-tight truncate select-all">{email}</p>
         </div>
       </div>
       <button 
         type="button"
         onClick={handleCopy}
-        className="p-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-white/5 dark:hover:bg-white/10 rounded-xl transition-all border border-slate-200 dark:border-white/5 hover:border-slate-300 dark:hover:border-white/20 cursor-pointer flex items-center justify-center shrink-0 ml-2"
+        className="p-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-white/10 dark:hover:bg-white/15 rounded-xl transition-all border border-slate-200 dark:border-white/10 hover:border-slate-300 dark:hover:border-white/20 cursor-pointer flex items-center justify-center shrink-0 ml-2"
         title="Copy to Clipboard"
       >
         {copied ? (
-          <CheckCircle2 size={13} className="text-emerald-500 dark:text-blue-400" />
+          <CheckCircle2 size={13} className="text-emerald-500 dark:text-emerald-400" />
         ) : (
-          <Copy size={13} className="text-slate-500 dark:text-slate-400 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors" />
+          <Copy size={13} className="text-slate-500 dark:text-slate-300 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors" />
         )}
       </button>
     </a>

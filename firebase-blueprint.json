@@ -46,6 +46,8 @@
         "profile_completed": { "type": "boolean" },
         "bonus_credited": { "type": "boolean" },
         "signup_bonus_credited": { "type": "boolean" },
+        "active_robot": { "type": "string" },
+        "unlocked_robots": { "type": "array" },
         "transfer_pin": { "type": "string" },
         "transaction_pin": { "type": "string" },
         "is_google_user": { "type": "boolean" },

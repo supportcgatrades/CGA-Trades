@@ -6,19 +6,14 @@
     <title>Capital Growth Alliance - Institutional Asset Management</title>
     <link rel="icon" type="image/png" href="https://i.imgur.com/nRbbYnS.png" />
     
-    <!-- Instant Anti-Flash Theme Engine Initialization -->
+    <!-- Instant Anti-Flash Theme Engine Initialization (Strict Device Theme Default) -->
     <script>
       (function() {
         try {
-          var stored = localStorage.getItem('theme');
-          var isDark = false;
-          if (stored === 'dark') {
-            isDark = true;
-          } else if (stored === 'light') {
-            isDark = false;
-          } else {
-            isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-          }
+          // Clear any legacy persisted theme so device theme is always authoritative on reload
+          localStorage.removeItem('theme');
+          sessionStorage.removeItem('theme');
+          var isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
           var root = document.documentElement;
           if (isDark) {
             root.classList.add('dark');
@@ -28,6 +23,13 @@
             root.classList.add('light');
             root.classList.remove('dark');
             root.style.colorScheme = 'light';
+          }
+          // Instant Anti-Flicker CGA Interface Mode Initialization
+          var savedMode = localStorage.getItem('cga_interface_mode');
+          if (savedMode === 'beta' || savedMode === 'lite') {
+            root.setAttribute('data-cga-mode', savedMode);
+          } else {
+            root.setAttribute('data-cga-mode', 'lite');
           }
         } catch (e) {}
       })();

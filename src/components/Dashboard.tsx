@@ -278,6 +278,7 @@ export default function Dashboard() {
       const dynamicActiveCount = userInvs.filter((i: any) => i.status === 'active').length;
 
       await runTransaction(db, async (transaction) => {
+        // --- 1. ALL READS MUST OCCUR BEFORE ANY WRITES ---
         const invRef = doc(db, 'investments', invId);
         const invSnap = await transaction.get(invRef);
         
@@ -286,22 +287,23 @@ export default function Dashboard() {
         
         if (invData.status !== 'inactive') throw new Error("Investment has already been activated or is in an invalid state.");
 
-        activatedPlanName = invData.plan_name;
-        activatedAmount = invData.amount;
-
-        // Update Investment
-        transaction.update(invRef, {
-          status: 'active',
-          activated_at: now,
-          last_sync: now,
-          total_earned: 0,
-          referral_bonus_processed: true
-        });
-
         const userRef = doc(db, 'users', user.uid);
         const userSnap = await transaction.get(userRef);
         if (!userSnap.exists()) throw new Error("User profile not found.");
         const userData = userSnap.data();
+
+        // Read referrer doc if referral bonus applies
+        const needsReferralBonus = Boolean(profile.referred_by && isFirstActivation && !invData.referral_bonus_processed);
+        let referrerRef = null;
+        let referrerSnap = null;
+        if (needsReferralBonus && profile.referred_by) {
+          referrerRef = doc(db, 'users', profile.referred_by);
+          referrerSnap = await transaction.get(referrerRef);
+        }
+
+        // --- 2. IN-MEMORY COMPUTATION & DERIVATION ---
+        activatedPlanName = invData.plan_name;
+        activatedAmount = invData.amount;
 
         let fee = 50;
         let robotName = 'AI 2.0';
@@ -342,17 +344,29 @@ export default function Dashboard() {
           userUpdates.roi_cycle_start = now;
         }
 
+        // --- 3. ALL WRITES AFTER ALL READS ---
+        // Write 1: Update Investment document
+        transaction.update(invRef, {
+          status: 'active',
+          activated_at: now,
+          last_sync: now,
+          total_earned: 0,
+          referral_bonus_processed: true
+        });
+
+        // Write 2: Update User document
         transaction.update(userRef, userUpdates);
 
-        // Referral Bonus Logic (only first investment activated)
-        if (profile.referred_by && isFirstActivation && !invData.referral_bonus_processed) {
+        // Write 3: Referral Bonus (if applicable)
+        if (needsReferralBonus && referrerRef) {
           const bonusAmount = invData.amount * 0.05;
-          const referrerRef = doc(db, 'users', profile.referred_by);
 
           // Increment referrer's active referral count
-          transaction.update(referrerRef, {
-            active_referrals: increment(1)
-          });
+          if (!referrerSnap || referrerSnap.exists()) {
+            transaction.update(referrerRef, {
+              active_referrals: increment(1)
+            });
+          }
 
           // Create pending claim document for User A (referrer)
           const claimRef1 = doc(collection(db, 'referral_claims'));

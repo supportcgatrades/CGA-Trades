@@ -22,8 +22,10 @@ export interface UserProfileLike {
  * Rules:
  * - Only applies to Google-authenticated / Google-created accounts.
  * - Cipher admin role bypasses profile completion.
- * - If profile_completed is true, returns false.
- * - If phone or country is missing, returns true.
+ * - If profile data is not yet resolved, returns false to prevent false rejection during load.
+ * - If profile_completed is true, returns false (verified).
+ * - If profile_completed is false, returns true (unverified).
+ * - If profile_completed is undefined, checks if phone and country are present.
  * - Does NOT affect email/password or existing complete users.
  */
 export function isGoogleProfileIncomplete(
@@ -43,29 +45,32 @@ export function isGoogleProfileIncomplete(
 
   if (!isGoogle) return false;
 
-  // If explicitly flagged as incomplete
-  if (profile?.profile_completed === false) return true;
+  // If profile is not yet loaded / resolved, do not treat as incomplete to prevent false rejection during initialization
+  if (!profile) return false;
 
-  // Check required profile fields
-  const rawPhone = String(profile?.phone || '').trim();
+  // Authoritative check: If explicitly completed, user is verified
+  if (profile.profile_completed === true) return false;
+
+  // If explicitly flagged as incomplete
+  if (profile.profile_completed === false) return true;
+
+  // Fallback check on required profile fields if profile_completed is undefined
+  const rawPhone = String(profile.phone || '').trim();
   const hasPhone = rawPhone.length >= 5;
 
   const rawCountry = String(
-    profile?.country ||
-    profile?.countryName ||
-    profile?.country_code ||
-    profile?.countryCode ||
+    profile.country ||
+    profile.countryName ||
+    profile.country_code ||
+    profile.countryCode ||
     ''
   ).trim();
   const hasCountry = rawCountry.length > 0;
 
-  const rawPin = String(profile?.transfer_pin || profile?.transaction_pin || '').trim();
-  const hasPin = /^\d{4}$/.test(rawPin);
-
-  // Authoritative check: Must have profile_completed true, phone, country, and 4-digit PIN
-  if (!profile?.profile_completed || !hasPhone || !hasCountry || !hasPin) {
-    return true;
+  // If user has both phone and country, consider complete
+  if (hasPhone && hasCountry) {
+    return false;
   }
 
-  return false;
+  return true;
 }

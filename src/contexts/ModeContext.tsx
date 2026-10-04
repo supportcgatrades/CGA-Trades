@@ -27,8 +27,6 @@ export const ModeProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const { user, profile } = useAuth();
   const { openVerificationPrompt } = useUI();
 
-  const isGoogleUnverified = Boolean(user && isGoogleProfileIncomplete(user, profile));
-
   const [mode, setModeState] = useState<CGAMode>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
@@ -38,22 +36,11 @@ export const ModeProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch (e) {
       console.warn("Could not read interface mode from localStorage", e);
     }
-    // Default to 'lite' as per requirement
+    // Default to 'lite' for new users with no saved preference
     return 'lite';
   });
 
   const [transitionTarget, setTransitionTarget] = useState<CGAMode | null>(null);
-
-  // If user is an unverified Google account and currently in beta, force revert to lite
-  useEffect(() => {
-    if (isGoogleUnverified && mode === 'beta') {
-      setModeState('lite');
-      try {
-        document.documentElement.setAttribute('data-cga-mode', 'lite');
-        localStorage.setItem(STORAGE_KEY, 'lite');
-      } catch (e) {}
-    }
-  }, [isGoogleUnverified, mode]);
 
   const [hasSeenBetaPrompt, setHasSeenBetaPrompt] = useState<boolean>(() => {
     try {
@@ -63,6 +50,7 @@ export const ModeProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   });
 
+  // Synchronize document attribute and localStorage with user's selected mode
   useEffect(() => {
     try {
       document.documentElement.setAttribute('data-cga-mode', mode);
@@ -76,9 +64,11 @@ export const ModeProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (newMode === mode) return;
 
     // Prevent unverified Google users from switching from Lite -> Beta
-    if (newMode === 'beta' && isGoogleUnverified) {
-      openVerificationPrompt("Please complete your account verification to access CGA Beta.");
-      return;
+    if (newMode === 'beta') {
+      if (user && isGoogleProfileIncomplete(user, profile)) {
+        openVerificationPrompt("Please complete your account verification to access CGA Beta.");
+        return;
+      }
     }
 
     // Immediately trigger transition overlay (no toast, no banner)
