@@ -299,11 +299,11 @@ export const ROIEngineStats = React.memo(({ investments, profile, user, variant 
     );
   }
 
-  // DEFAULT (Home variant) - Redesigned Horizontal Card
+  // DEFAULT (Home variant) - Refined Layout with Side-by-Side Market/Bot Top & Tip-Tracked Progress
   return (
     <div 
         className={cn(
-          "w-full border shadow-[0_20px_50px_rgba(0,0,0,0.9)] backdrop-blur-md rounded-[24px] overflow-hidden flex flex-col md:flex-row items-stretch md:items-center justify-between p-5 lg:p-6 gap-5 relative group hover:border-[#009e42]/40 hover:shadow-[0_0_30px_rgba(0,158,66,0.06)] transition-all duration-500 gpu-accelerate",
+          "w-full border shadow-[0_20px_50px_rgba(0,0,0,0.9)] backdrop-blur-md rounded-[24px] overflow-hidden flex flex-col p-4 sm:p-5 lg:p-6 gap-3.5 sm:gap-4 relative group hover:border-[#009e42]/40 hover:shadow-[0_0_30px_rgba(0,158,66,0.06)] transition-all duration-500 gpu-accelerate",
           isLight 
             ? "bg-white border-slate-200/80 shadow-[0_10px_30px_rgba(0,0,0,0.03),0_0_25px_rgba(255,255,255,0.95)]" 
             : "bg-[#0B0D13]/90 border-white/10"
@@ -319,125 +319,180 @@ export const ROIEngineStats = React.memo(({ investments, profile, user, variant 
             </div>
         </div>
 
-        {/* Column 1: Robot Status & Live Indicator */}
-        <div className="flex items-center gap-4 relative z-10">
-          <div className="relative">
-            {/* Small robot card */}
-            <div className={cn(
-              "w-12 h-12 lg:w-14 lg:h-14 backdrop-blur-sm rounded-xl border flex items-center justify-center shadow-xl overflow-hidden relative transition-all",
-              isLight ? "bg-slate-100 border-slate-200 text-emerald-600" : "bg-[#11141b]/90 border-white/10 text-[#00ffff]"
-            )}>
-              <motion.div 
-                animate={{
-                  scale: [0.9, 1.0, 0.9]
-                }}
-                transition={{
-                  duration: 3,
-                  repeat: Infinity,
-                  ease: "easeInOut"
-                }}
-                className="w-10 h-10 lg:w-12 lg:h-12 relative flex items-center justify-center"
-              >
-                <img 
-                  src={activeRobotImage} 
-                  alt={`${activeRobotName} Active`} 
-                  referrerPolicy="no-referrer"
-                  loading="lazy"
-                  decoding="async"
-                  className="w-full h-full object-contain filter drop-shadow-[0_5px_10px_rgba(0,0,0,0.6)]"
-                />
-              </motion.div>
+        {/* 1. TOP SECTION: REAL-TIME MARKET (Left) + AI BOT (Right) SIDE-BY-SIDE */}
+        <div className="flex items-center justify-between gap-3 relative z-10 w-full">
+          {/* REAL-TIME MARKET panel */}
+          <div className="flex flex-col items-start min-w-0">
+            <div className="text-[7px] sm:text-[7.5px] font-mono font-bold uppercase tracking-widest text-slate-400 dark:text-white/40 mb-1 flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping shrink-0" />
+              <span>REAL-TIME MARKET</span>
             </div>
-            {/* Glowing Green/Emerald Indicator sitting across top right edge */}
-            <div className="absolute -top-1 -right-1 w-3 h-3 bg-emerald-500 rounded-full shadow-[0_0_12px_#10b981] z-50 pointer-events-none">
-              <div className="absolute inset-0 rounded-full bg-emerald-500 animate-ping opacity-75" />
-            </div>
+            <TradingActivity className="items-start" />
           </div>
 
-          <div className="flex flex-col text-left">
-            <span className={cn(
-              "text-[10px] font-black uppercase tracking-[0.2em] transition-colors",
-              isLight ? "text-slate-400" : "text-[#009e42]"
-            )}>CGA Nodes Active</span>
-            <span className={cn(
-              "text-xs font-semibold flex items-center gap-1.5 mt-0.5 transition-colors",
-              isLight ? "text-slate-700" : "text-white"
-            )}>
-              <Zap size={11} className={cn("transition-colors", isLight ? "text-emerald-600" : "text-emerald-400")} /> {activeCount} {activeCount === 1 ? 'Node Online' : 'Nodes Online'}
-            </span>
-            <div className="mt-1 flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+          {/* AI BOT section */}
+          <div className="flex items-center gap-2.5 sm:gap-3 shrink-0">
+            <div className="flex flex-col items-end text-right">
               <span className={cn(
-                "text-[8px] font-mono uppercase tracking-wider transition-colors",
-                isLight ? "text-emerald-600 font-bold" : "text-emerald-400/80"
-              )}>HFT Trading Loop</span>
+                "text-xs sm:text-sm font-black uppercase tracking-wider transition-colors",
+                isLight ? "text-slate-800" : "text-white"
+              )}>
+                {activeRobotName || 'AI Bot'}
+              </span>
+              {/* “AI 2.0 Active” subtle status badge */}
+              <div className={cn(
+                "inline-flex items-center gap-1 text-[7px] sm:text-[7.5px] font-mono font-semibold tracking-wider uppercase mt-0.5 px-1.5 py-0.5 rounded-full transition-colors",
+                isLight ? "text-emerald-700 bg-emerald-50 border border-emerald-200/60" : "text-emerald-400 bg-emerald-500/10 border border-emerald-500/20"
+              )}>
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                <span>AI 2.0 Active</span>
+              </div>
+            </div>
+
+            {/* Robot Avatar with live dot */}
+            <div className="relative shrink-0">
+              <div className={cn(
+                "w-10 h-10 sm:w-12 sm:h-12 backdrop-blur-sm rounded-xl border flex items-center justify-center shadow-md overflow-hidden relative transition-all",
+                isLight ? "bg-slate-100 border-slate-200" : "bg-[#11141b]/90 border-white/10"
+              )}>
+                <motion.div 
+                  animate={{ scale: [0.92, 1.0, 0.92] }}
+                  transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
+                  className="w-8 h-8 sm:w-10 sm:h-10 relative flex items-center justify-center"
+                >
+                  <img 
+                    src={activeRobotImage} 
+                    alt="AI Bot" 
+                    referrerPolicy="no-referrer"
+                    loading="lazy"
+                    decoding="async"
+                    className="w-full h-full object-contain filter drop-shadow-[0_4px_8px_rgba(0,0,0,0.5)]"
+                  />
+                </motion.div>
+              </div>
+              <div className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-emerald-500 rounded-full shadow-[0_0_10px_#10b981] z-50 pointer-events-none">
+                <div className="absolute inset-0 rounded-full bg-emerald-500 animate-ping opacity-75" />
+              </div>
             </div>
           </div>
         </div>
 
-        {/* Column 2: Live Earnings Counter & Progress Bar */}
-        <div className="flex-1 flex flex-col justify-center min-w-0 relative z-10 md:px-4">
-          <div className="flex items-baseline justify-between mb-1.5">
+        {/* 2. MIDDLE SECTION: Real-time Earnings (Left) + Countdown Circle (Right) */}
+        <div className="flex items-center justify-between gap-4 relative z-10 w-full pt-1">
+          {/* Real-time Earnings */}
+          <div className="flex flex-col text-left space-y-0.5">
             <span className={cn(
-              "text-[9px] font-black uppercase tracking-widest transition-colors",
-              isLight ? "text-slate-400" : "text-white/40"
-            )}>Real-time Earnings</span>
-            <span className={cn(
-              "text-[9px] font-mono font-bold tracking-widest px-1.5 py-0.5 rounded transition-colors",
-              isLight ? "text-emerald-700 bg-emerald-50" : "text-emerald-400 bg-emerald-500/10"
+              "text-[7.5px] sm:text-[8px] font-bold uppercase tracking-wider transition-colors",
+              isLight ? "text-slate-500" : "text-white/40"
             )}>
-              +{progress.toFixed(0)}%
+              Real-time earnings
             </span>
-          </div>
-
-          <div className="flex items-baseline gap-1.5 mb-2">
             <DynamicBalance 
               value={formatCurrency(liveEarnings)} 
               className={cn(
-                "font-serif italic text-left transition-colors",
+                "font-serif italic text-left transition-colors font-black tracking-tight",
                 isLight ? "text-emerald-600" : "text-emerald-400"
               )}
               containerClassName="justify-start"
               baseSizeMobile="text-2xl"
-              baseSizeDesktop="lg:text-2xl"
+              baseSizeDesktop="lg:text-3xl"
             />
-            <span className={cn(
-              "text-[9px] font-semibold tracking-wider uppercase transition-colors",
-              isLight ? "text-slate-500" : "text-white/40"
-            )}>
-              / {formatCurrency(yieldSum)} Daily Return
-            </span>
           </div>
 
-          {/* Progress Bar */}
-          <div className="space-y-1">
-            <div className={cn(
-              "h-1.5 rounded-full overflow-hidden p-[0.5px] border transition-colors",
-              isLight ? "bg-slate-100 border-slate-200" : "bg-white/5 border-white/5"
-            )}>
-              <motion.div 
-                initial={{ width: 0 }}
-                animate={{ width: `${progress}%` }}
-                className="h-full bg-gradient-to-r from-emerald-400 via-[#009e42] to-green-500 shadow-[0_0_15px_rgba(16,185,129,0.4)] rounded-full"
-              />
+          {/* Countdown Circle with actual countdown and tiny supporting label */}
+          <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
+            {/* Countdown Progress Circle */}
+            <div className="relative w-8 h-8 sm:w-9 sm:h-9 shrink-0 flex items-center justify-center">
+              <svg className="w-full h-full -rotate-90" viewBox="0 0 36 36">
+                <circle
+                  cx="18"
+                  cy="18"
+                  r="15"
+                  fill="none"
+                  stroke={isLight ? '#e2e8f0' : 'rgba(255,255,255,0.08)'}
+                  strokeWidth="2.5"
+                />
+                <circle
+                  cx="18"
+                  cy="18"
+                  r="15"
+                  fill="none"
+                  stroke="#10b981"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                  strokeDasharray={2 * Math.PI * 15}
+                  strokeDashoffset={2 * Math.PI * 15 * (1 - progress / 100)}
+                  className="transition-all duration-500 ease-out"
+                />
+              </svg>
+              <Clock size={11} className={cn("absolute transition-colors", isLight ? "text-emerald-600" : "text-emerald-400")} />
+            </div>
+
+            <div className="flex flex-col text-right">
+              <span className={cn(
+                "text-[7px] sm:text-[7.5px] font-bold uppercase tracking-[0.18em] transition-colors leading-none",
+                isLight ? "text-slate-400" : "text-white/40"
+              )}>
+                Remaining
+              </span>
+              <span className={cn(
+                "text-xs sm:text-sm font-black italic font-serif font-mono mt-0.5 tracking-tight transition-colors",
+                isLight ? "text-slate-800" : "text-white"
+              )}>
+                {timeLeft}
+              </span>
             </div>
           </div>
         </div>
 
-        {/* Column 3: Timer & Countdown */}
-        <div className="flex md:flex-col items-center md:items-end justify-between md:justify-center border-t border-white/5 md:border-t-0 pt-3 md:pt-0 gap-2 relative z-10 min-w-[120px]">
-          <div className="text-left md:text-right">
+        {/* 3. Expected Daily Returns Row */}
+        <div className="flex items-center justify-between w-full pt-1 relative z-10">
+          <span className={cn(
+            "text-[7px] sm:text-[7.5px] font-bold uppercase tracking-[0.15em] transition-colors",
+            isLight ? "text-slate-400" : "text-white/40"
+          )}>
+            Expected Daily Returns
+          </span>
+          <span className={cn(
+            "text-xs sm:text-sm font-black italic font-serif font-mono transition-colors",
+            isLight ? "text-emerald-600" : "text-emerald-400"
+          )}>
+            {formatCurrency(yieldSum)}
+          </span>
+        </div>
+
+        {/* 4. Earning Progress Bar with Live Moving Percentage at the Tip */}
+        <div className="w-full relative pt-1 pb-4 z-10">
+          {/* Progress Track */}
+          <div className={cn(
+            "h-1.5 sm:h-2 rounded-full overflow-hidden p-[0.5px] border transition-colors w-full relative",
+            isLight ? "bg-slate-100 border-slate-200" : "bg-white/5 border-white/5"
+          )}>
+            <motion.div 
+              initial={{ width: 0 }}
+              animate={{ width: `${progress}%` }}
+              className="h-full bg-gradient-to-r from-emerald-400 via-[#009e42] to-green-500 shadow-[0_0_15px_rgba(16,185,129,0.4)] rounded-full"
+            />
+          </div>
+
+          {/* Tip Dot & Percentage Indicator Attached to Leading Edge */}
+          <div 
+            className="absolute top-1 pointer-events-none transition-all duration-300 ease-out flex flex-col items-center"
+            style={{ 
+              left: `${Math.min(96, Math.max(4, progress))}%`,
+              transform: 'translateX(-50%)'
+            }}
+          >
+            {/* Glowing Tip Dot */}
+            <div className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full bg-emerald-400 border-2 border-white dark:border-[#0B0D13] shadow-[0_0_8px_#10b981] -mt-[3px] sm:-mt-[2px]" />
+            
+            {/* Percentage Value at the Tip */}
             <span className={cn(
-              "text-[9px] font-black uppercase tracking-widest transition-colors",
-              isLight ? "text-slate-400" : "text-white/40"
-            )}>Cycle Timer</span>
-            <p className={cn(
-              "text-lg font-black italic font-serif font-mono mt-0.5 flex items-center gap-1.5 justify-start md:justify-end transition-colors",
-              isLight ? "text-slate-800" : "text-white"
+              "text-[8px] sm:text-[8.5px] font-mono font-bold tracking-tight mt-0.5 whitespace-nowrap transition-colors",
+              isLight ? "text-emerald-700" : "text-emerald-400"
             )}>
-              <Clock size={12} className={cn("transition-colors", isLight ? "text-emerald-600" : "text-emerald-400")} />
-              <span>{timeLeft}</span>
-            </p>
+              {progress.toFixed(0)}%
+            </span>
           </div>
         </div>
     </div>

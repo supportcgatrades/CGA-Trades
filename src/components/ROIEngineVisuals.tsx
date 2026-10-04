@@ -201,23 +201,23 @@ export const TradingActivity = React.memo(({ className }: { className?: string }
               opacity: { duration: 0.3 }
             }}
             style={{ willChange: 'transform, opacity', translateZ: 0 }}
-            className="overflow-hidden h-[15px] lg:h-[22px] bg-[#0d1017]/90 backdrop-blur-md rounded-md px-1 lg:px-1.5 border border-white/10 shadow-lg flex items-center gap-1 lg:gap-1.5 min-w-[70px] lg:min-w-[95px] justify-between group cursor-default"
+            className="overflow-hidden h-[18px] lg:h-[22px] bg-slate-100/90 dark:bg-[#0d1017]/90 backdrop-blur-md rounded-md px-1 lg:px-1.5 border border-slate-200/80 dark:border-white/10 shadow-sm dark:shadow-lg flex items-center gap-1 lg:gap-1.5 min-w-[75px] lg:min-w-[95px] justify-between group cursor-default"
           >
             <div className="flex items-center gap-0.5 lg:gap-1">
               <span className={cn(
                 "text-[4.5px] lg:text-[7px] font-black tracking-widest px-0.5 lg:px-1 py-0.5 rounded-[2px] leading-none",
                 item.id % 2 === 0 ? "animate-pulse" : "", // Subtle pulse
-                item.type === 'bull' ? "bg-emerald-500/20 text-emerald-400" : "bg-red-500/20 text-red-400"
+                item.type === 'bull' ? "bg-emerald-500/20 text-emerald-600 dark:text-emerald-400" : "bg-red-500/20 text-red-600 dark:text-red-400"
               )}>
                 {item.action}
               </span>
-              <span className="text-[5.5px] lg:text-[8px] font-mono text-white/90 font-black uppercase tracking-tighter leading-none truncate max-w-[30px] lg:max-w-[45px]">
+              <span className="text-[5.5px] lg:text-[8px] font-mono text-slate-800 dark:text-white/90 font-black uppercase tracking-tighter leading-none truncate max-w-[32px] lg:max-w-[45px]">
                 {item.pair}
               </span>
             </div>
             <span className={cn(
               "text-[5.5px] lg:text-[8px] font-mono font-bold leading-none text-right shrink-0",
-              item.type === 'bull' ? "text-emerald-400" : "text-red-400"
+              item.type === 'bull' ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"
             )}>
               {item.price}
             </span>
