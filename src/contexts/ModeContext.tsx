@@ -1,5 +1,7 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import { doc, updateDoc } from 'firebase/firestore';
+import { db } from '../lib/firebase';
 import { useAuth } from './AuthContext';
 import { useUI } from './UIContext';
 import { isGoogleProfileIncomplete } from '../utils/googleProfile';
@@ -26,12 +28,19 @@ const PROMPT_STORAGE_KEY = 'cga_beta_prompt_dismissed';
 export const ModeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, profile } = useAuth();
   const { openVerificationPrompt } = useUI();
+  const hasUserManuallySetRef = useRef(false);
 
   const [mode, setModeState] = useState<CGAMode>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved === 'beta' || saved === 'lite') {
         return saved;
+      }
+      if (typeof document !== 'undefined') {
+        const attr = document.documentElement.getAttribute('data-cga-mode');
+        if (attr === 'beta' || attr === 'lite') {
+          return attr;
+        }
       }
     } catch (e) {
       console.warn("Could not read interface mode from localStorage", e);
@@ -50,15 +59,32 @@ export const ModeProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   });
 
+  // Restore user's saved account preference if localStorage did not have an explicit selection
+  useEffect(() => {
+    if (!profile || hasUserManuallySetRef.current) return;
+    const accountMode = profile.cga_mode;
+    if ((accountMode === 'beta' || accountMode === 'lite') && accountMode !== mode) {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (!saved) {
+        setModeState(accountMode);
+        document.documentElement.setAttribute('data-cga-mode', accountMode);
+        localStorage.setItem(STORAGE_KEY, accountMode);
+      }
+    }
+  }, [profile?.cga_mode]);
+
   // Synchronize document attribute and localStorage with user's selected mode
   useEffect(() => {
     try {
       document.documentElement.setAttribute('data-cga-mode', mode);
       localStorage.setItem(STORAGE_KEY, mode);
+      if (user?.uid) {
+        localStorage.setItem(`${STORAGE_KEY}_${user.uid}`, mode);
+      }
     } catch (e) {
       console.warn("Could not write interface mode to localStorage", e);
     }
-  }, [mode]);
+  }, [mode, user?.uid]);
 
   const setMode = (newMode: CGAMode, onComplete?: () => void) => {
     if (newMode === mode) return;
@@ -71,6 +97,8 @@ export const ModeProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     }
 
+    hasUserManuallySetRef.current = true;
+
     // Immediately trigger transition overlay (no toast, no banner)
     setTransitionTarget(newMode);
 
@@ -80,6 +108,10 @@ export const ModeProvider: React.FC<{ children: React.ReactNode }> = ({ children
       try {
         document.documentElement.setAttribute('data-cga-mode', newMode);
         localStorage.setItem(STORAGE_KEY, newMode);
+        if (user?.uid) {
+          localStorage.setItem(`${STORAGE_KEY}_${user.uid}`, newMode);
+          updateDoc(doc(db, 'users', user.uid), { cga_mode: newMode }).catch(() => {});
+        }
       } catch (e) {
         console.warn("Could not write interface mode to localStorage", e);
       }

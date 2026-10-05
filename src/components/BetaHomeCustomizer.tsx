@@ -156,6 +156,7 @@ export interface BetaHomeCustomizerProps {
   navigate: (path: string) => void;
   isEditing?: boolean;
   setIsEditing?: (val: boolean) => void;
+  isLoaded?: boolean;
 }
 
 // Sub-component for each reorderable widget item with drag handle
@@ -259,6 +260,7 @@ export default function BetaHomeCustomizer({
   navigate,
   isEditing: propIsEditing,
   setIsEditing: propSetIsEditing,
+  isLoaded,
 }: BetaHomeCustomizerProps) {
   const storageKey = `cga_beta_home_customization_${user?.uid || 'guest'}`;
 
@@ -553,6 +555,7 @@ export default function BetaHomeCustomizer({
               profile={profile}
               user={user}
               variant="home"
+              isLoaded={isLoaded}
             />
           </div>
         );

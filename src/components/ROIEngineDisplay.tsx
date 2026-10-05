@@ -18,10 +18,11 @@ interface ROIEngineStatsProps {
   profile: any;
   user: any;
   variant?: 'home' | 'dashboard';
+  isLoaded?: boolean;
 }
 
-export const ROIEngineStats = React.memo(({ investments, profile, user, variant = 'home' }: ROIEngineStatsProps) => {
-  const { plans, expectedDailyRoi } = useAuth();
+export const ROIEngineStats = React.memo(({ investments, profile, user, variant = 'home', isLoaded }: ROIEngineStatsProps) => {
+  const { plans, expectedDailyRoi, activeInvestments: authActiveInvestments, activeInvestmentsLoaded } = useAuth();
   const [progress, setProgress] = useState(0);
   const [timeLeft, setTimeLeft] = useState("24:00:00");
   const [liveEarnings, setLiveEarnings] = useState(0);
@@ -36,10 +37,6 @@ export const ROIEngineStats = React.memo(({ investments, profile, user, variant 
     return () => observer.disconnect();
   }, []);
 
-  const activeRobotName = profile?.active_robot || 'Default Bot';
-  const activeRobotImage = profile?.active_robot && ROBOT_IMAGES[profile.active_robot]
-    ? ROBOT_IMAGES[profile.active_robot]
-    : 'https://i.imgur.com/swuDIvl.png';
 
   useEffect(() => {
     let timeoutId: any;
@@ -57,12 +54,82 @@ export const ROIEngineStats = React.memo(({ investments, profile, user, variant 
     return () => clearTimeout(timeoutId);
   }, []);
 
-  const activeInvestments = useMemo(() => investments.filter(i => i.status === 'active'), [investments]);
+  const sourceInvestments = (investments && investments.length > 0) ? investments : (authActiveInvestments || []);
+  const activeInvestments = useMemo(() => sourceInvestments.filter((i: any) => i.status === 'active'), [sourceInvestments]);
   const activeCount = profile?.migration_status === 'accepted' ? 1 : activeInvestments.length;
+  const isConfirmedActive = activeCount > 0;
+  const isStatusKnown = (isLoaded !== undefined ? isLoaded : false) || activeInvestmentsLoaded || isConfirmedActive;
   const yieldSum = expectedDailyRoi;
 
+  // Authoritative active plan type detection based on active investments & plans
+  const activePlanType = useMemo(() => {
+    if (activeInvestments && activeInvestments.length > 0) {
+      // 1. Check if any active investment matches Elite
+      const isElite = activeInvestments.some((inv: any) => {
+        const id = (inv.plan_id || '').toLowerCase();
+        const name = (inv.plan_name || '').toLowerCase();
+        return id === 'elite' || id.includes('elite') || name.includes('elite') || (inv.amount && inv.amount >= 1000000);
+      });
+      if (isElite) return 'elite';
+
+      // 2. Check if any active investment matches Premium
+      const isPremium = activeInvestments.some((inv: any) => {
+        const id = (inv.plan_id || '').toLowerCase();
+        const name = (inv.plan_name || '').toLowerCase();
+        return id === 'premium' || id.includes('premium') || name.includes('premium') || (inv.amount && inv.amount >= 100000 && inv.amount < 1000000);
+      });
+      if (isPremium) return 'premium';
+
+      // 3. Match against plans array
+      const firstActive = activeInvestments[0];
+      const matchingPlan = (plans || []).find((p: any) => 
+        p.id === firstActive.plan_id ||
+        (p.id || '').toLowerCase() === (firstActive.plan_name || '').toLowerCase() ||
+        (p.name || '').toLowerCase() === (firstActive.plan_name || '').toLowerCase() ||
+        (firstActive.amount >= p.min && firstActive.amount <= p.max)
+      );
+      if (matchingPlan) {
+        const pid = (matchingPlan.id || matchingPlan.name || '').toLowerCase();
+        if (pid.includes('elite')) return 'elite';
+        if (pid.includes('premium')) return 'premium';
+      }
+
+      return 'regular';
+    }
+
+    // Fallback if user is migrated or has profile-level plan
+    const profilePlan = (profile?.active_plan_id || profile?.plan || profile?.active_plan || '').toLowerCase();
+    if (profilePlan.includes('elite')) return 'elite';
+    if (profilePlan.includes('premium')) return 'premium';
+
+    const robotName = (profile?.active_robot || '').toLowerCase();
+    if (robotName.includes('3.0')) return 'elite';
+    if (robotName.includes('2.5')) return 'premium';
+
+    return 'regular';
+  }, [activeInvestments, plans, profile?.active_plan_id, profile?.plan, profile?.active_plan, profile?.active_robot]);
+
+  // Plan-specific status badge text mapping:
+  // REGULAR -> AI 2.0 ACTIVE
+  // PREMIUM -> AI 2.5 ACTIVE
+  // ELITE   -> AI 3.0 ACTIVE
+  const aiBadgeLabel = useMemo(() => {
+    switch (activePlanType) {
+      case 'elite':
+        return 'AI 3.0 ACTIVE';
+      case 'premium':
+        return 'AI 2.5 ACTIVE';
+      case 'regular':
+      default:
+        return 'AI 2.0 ACTIVE';
+    }
+  }, [activePlanType]);
+
+  const planRobotName = activePlanType === 'elite' ? 'AI 3.0' : activePlanType === 'premium' ? 'AI 2.5' : 'AI 2.0';
+  const activeRobotImage = ROBOT_IMAGES[planRobotName] || (profile?.active_robot && ROBOT_IMAGES[profile.active_robot]) || 'https://i.imgur.com/JGTKlCJ.png';
+
   useEffect(() => {
-    if (!user || !profile || activeCount === 0 || !profile.roi_cycle_start) {
+    if (!user || !profile || !isConfirmedActive || !profile.roi_cycle_start) {
       setProgress(0);
       setTimeLeft("24:00:00");
       setLiveEarnings(0);
@@ -102,9 +169,60 @@ export const ROIEngineStats = React.memo(({ investments, profile, user, variant 
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [user?.uid, profile?.roi_cycle_start, activeCount, yieldSum, plans, activeInvestments]);
+  }, [user?.uid, profile?.roi_cycle_start, isConfirmedActive, yieldSum, plans, activeInvestments]);
 
-  if (activeCount === 0) {
+  // STATE 1: Investment status is UNKNOWN / STILL LOADING -> Do NOT render Offline Engine
+  if (!isConfirmedActive && !isStatusKnown) {
+    if (variant === 'dashboard') {
+      return (
+        <div 
+          className={cn(
+            "p-10 border rounded-[40px] flex flex-col items-center justify-center text-center space-y-3 min-h-[300px] relative overflow-hidden gpu-accelerate transition-all duration-300",
+            isLight 
+              ? "bg-white border-slate-200/80 shadow-[0_10px_30px_rgba(0,0,0,0.03),0_0_25px_rgba(255,255,255,0.95)]" 
+              : "bg-[#0B0D13]/90 border-white/10"
+          )}
+        >
+          <div className="relative mb-2 overflow-visible">
+            <div className={cn(
+              "w-16 h-16 rounded-2xl border flex items-center justify-center overflow-hidden shadow-inner transition-colors animate-pulse",
+              isLight ? "bg-slate-100 border-slate-200" : "bg-[#11141b]/95 border-white/10"
+            )}>
+              <Bot className={cn("w-7 h-7", isLight ? "text-slate-300" : "text-white/20")} />
+            </div>
+          </div>
+          <div className={cn("h-4 w-32 rounded-full animate-pulse", isLight ? "bg-slate-200" : "bg-white/10")} />
+          <div className={cn("h-2.5 w-44 rounded-full animate-pulse", isLight ? "bg-slate-100" : "bg-white/5")} />
+        </div>
+      );
+    }
+    return (
+      <div 
+        className={cn(
+          "w-full border shadow-[0_20px_50px_rgba(0,0,0,0.9)] backdrop-blur-md rounded-[24px] p-5 lg:p-6 min-h-[140px] sm:min-h-[160px] flex items-center justify-between relative overflow-hidden transition-all duration-500 gpu-accelerate",
+          isLight 
+            ? "bg-white border-slate-200/80 shadow-[0_10px_30px_rgba(0,0,0,0.03),0_0_25px_rgba(255,255,255,0.95)]" 
+            : "bg-[#0B0D13]/90 border-white/10"
+        )}
+      >
+        <div className="flex items-center gap-3.5">
+          <div className={cn(
+            "w-12 h-12 rounded-xl border flex items-center justify-center overflow-hidden shadow-inner transition-colors animate-pulse",
+            isLight ? "bg-slate-100 border-slate-200" : "bg-[#11141b]/95 border-white/10"
+          )}>
+            <Bot className={cn("w-5 h-5", isLight ? "text-slate-300" : "text-white/20")} />
+          </div>
+          <div className="flex flex-col gap-2">
+            <div className={cn("h-3 w-24 rounded-full animate-pulse", isLight ? "bg-slate-200" : "bg-white/10")} />
+            <div className={cn("h-2 w-36 rounded-full animate-pulse", isLight ? "bg-slate-100" : "bg-white/5")} />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // STATE 3: Investment is CONFIRMED INACTIVE (no active investment) -> Render Offline Engine
+  if (!isConfirmedActive) {
     if (variant === 'dashboard') {
         return (
             <div 
@@ -303,29 +421,22 @@ export const ROIEngineStats = React.memo(({ investments, profile, user, variant 
   return (
     <div 
         className={cn(
-          "w-full border shadow-[0_20px_50px_rgba(0,0,0,0.9)] backdrop-blur-md rounded-[24px] overflow-hidden flex flex-col p-4 sm:p-5 lg:p-6 gap-3.5 sm:gap-4 relative group hover:border-[#009e42]/40 hover:shadow-[0_0_30px_rgba(0,158,66,0.06)] transition-all duration-500 gpu-accelerate",
+          "w-full border backdrop-blur-md rounded-[24px] overflow-hidden flex flex-col p-4 sm:p-5 lg:p-6 gap-3.5 sm:gap-4 relative group hover:border-[#009e42]/40 hover:shadow-[0_0_30px_rgba(0,158,66,0.06)] transition-all duration-500 gpu-accelerate",
           isLight 
             ? "bg-white border-slate-200/80 shadow-[0_10px_30px_rgba(0,0,0,0.03),0_0_25px_rgba(255,255,255,0.95)]" 
-            : "bg-[#0B0D13]/90 border-white/10"
+            : "bg-[#0B0D13]/90 border-white/10 shadow-[0_20px_50px_rgba(0,0,0,0.9)]"
         )}
     >
         {/* Subtle 3D glossy highlight line overlay */}
         <div className="absolute top-0 left-0 right-0 h-[1.5px] bg-gradient-to-r from-transparent via-[#10b981]/30 to-transparent pointer-events-none z-20" />
-        
-        {/* Background Candlestick Chart */}
-        <div className="absolute inset-0 pointer-events-none opacity-10 group-hover:opacity-15 transition-opacity">
-            <div className="absolute inset-x-0 bottom-0 top-1/2 flex items-end justify-between px-2 gap-1">
-                <CandlestickChart count={40} />
-            </div>
-        </div>
 
-        {/* 1. TOP SECTION: REAL-TIME MARKET (Left) + AI BOT (Right) SIDE-BY-SIDE */}
+        {/* 1. TOP SECTION: Live Trading (Left) + AI BOT (Right) SIDE-BY-SIDE */}
         <div className="flex items-center justify-between gap-3 relative z-10 w-full">
-          {/* REAL-TIME MARKET panel */}
+          {/* Live Trading panel */}
           <div className="flex flex-col items-start min-w-0">
-            <div className="text-[7px] sm:text-[7.5px] font-mono font-bold uppercase tracking-widest text-slate-400 dark:text-white/40 mb-1 flex items-center gap-1.5">
+            <div className="text-[7px] sm:text-[7.5px] font-mono font-bold tracking-widest text-slate-400 dark:text-white/40 mb-1 flex items-center gap-1.5">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping shrink-0" />
-              <span>REAL-TIME MARKET</span>
+              <span>Live Trading</span>
             </div>
             <TradingActivity className="items-start" />
           </div>
@@ -333,19 +444,13 @@ export const ROIEngineStats = React.memo(({ investments, profile, user, variant 
           {/* AI BOT section */}
           <div className="flex items-center gap-2.5 sm:gap-3 shrink-0">
             <div className="flex flex-col items-end text-right">
-              <span className={cn(
-                "text-xs sm:text-sm font-black uppercase tracking-wider transition-colors",
-                isLight ? "text-slate-800" : "text-white"
-              )}>
-                {activeRobotName || 'AI Bot'}
-              </span>
-              {/* “AI 2.0 Active” subtle status badge */}
+              {/* Only single visible plan-specific status badge */}
               <div className={cn(
-                "inline-flex items-center gap-1 text-[7px] sm:text-[7.5px] font-mono font-semibold tracking-wider uppercase mt-0.5 px-1.5 py-0.5 rounded-full transition-colors",
+                "inline-flex items-center gap-1 text-[7px] sm:text-[7.5px] font-mono font-semibold tracking-wider uppercase px-1.5 py-0.5 rounded-full transition-colors",
                 isLight ? "text-emerald-700 bg-emerald-50 border border-emerald-200/60" : "text-emerald-400 bg-emerald-500/10 border border-emerald-500/20"
               )}>
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />
-                <span>AI 2.0 Active</span>
+                <span>{aiBadgeLabel}</span>
               </div>
             </div>
 
@@ -433,7 +538,7 @@ export const ROIEngineStats = React.memo(({ investments, profile, user, variant 
                 "text-[7px] sm:text-[7.5px] font-bold uppercase tracking-[0.18em] transition-colors leading-none",
                 isLight ? "text-slate-400" : "text-white/40"
               )}>
-                Remaining
+                Time Remaining
               </span>
               <span className={cn(
                 "text-xs sm:text-sm font-black italic font-serif font-mono mt-0.5 tracking-tight transition-colors",

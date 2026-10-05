@@ -105,7 +105,7 @@ export const CandlestickChart = React.memo(({ count = 30, className }: { count?:
       </div>
 
       {/* Glossy Overlay for a "behind glass" look */}
-      <div className="absolute inset-0 bg-gradient-to-t from-[#0d1017] via-transparent to-transparent pointer-events-none" />
+      <div className="absolute inset-0 bg-gradient-to-t from-transparent dark:from-[#0d1017] via-transparent to-transparent pointer-events-none" />
     </div>
   );
 });

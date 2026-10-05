@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Building2, 
@@ -58,7 +58,7 @@ const MemoizedTopInvestorsSection = React.memo(TopInvestorsSection);
 const MemoizedWhyChooseSection = React.memo(WhyChooseSection);
 
 export default function Homepage() {
-  const { user, profile } = useAuth();
+  const { user, profile, activeInvestments: authActiveInvestments, activeInvestmentsLoaded } = useAuth();
   const { t } = useLanguage();
   const { mode, isLite, isBeta } = useMode();
   const { requestPopup, closePopup, activePopupId, openTransferModal, openVerificationPrompt } = useUI();
@@ -94,12 +94,40 @@ export default function Homepage() {
     window.scrollTo(0, 0);
   }, []);
 
-  const [investments, setInvestments] = useState<any[]>([]);
+  const [investmentsLoaded, setInvestmentsLoaded] = useState<boolean>(() => {
+    try {
+      if (typeof window !== 'undefined' && sessionStorage.getItem('cga_investments_cache')) {
+        return true;
+      }
+    } catch {}
+    return false;
+  });
+
+  const [investments, setInvestments] = useState<any[]>(() => {
+    try {
+      if (typeof window !== 'undefined') {
+        const cached = sessionStorage.getItem('cga_investments_cache');
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        }
+      }
+    } catch {}
+    return [];
+  });
+
+  const effectiveInvestments = useMemo(() => {
+    if (investments && investments.length > 0) return investments;
+    if (authActiveInvestments && authActiveInvestments.length > 0) return authActiveInvestments;
+    return [];
+  }, [investments, authActiveInvestments]);
+
+  const isInvestmentsAuthoritativelyKnown = investmentsLoaded || activeInvestmentsLoaded || effectiveInvestments.some((i: any) => i.status === 'active');
 
   useEffect(() => {
-    if (!user || !profile) return;
+    if (!user) return;
     
-    const isCipher = profile.role === 'cipher';
+    const isCipher = profile?.role === 'cipher';
     const isGoogleUser = Boolean(profile?.is_google_user || user?.providerData?.some(p => p.providerId === 'google.com'));
     const isVerified = user.emailVerified || profile?.email_verified || isGoogleUser || isCipher;
 
@@ -111,13 +139,18 @@ export default function Homepage() {
       const list = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setInvestments(list);
       setInvestmentsLoaded(true);
+      try {
+        if (typeof window !== 'undefined') {
+          sessionStorage.setItem('cga_investments_cache', JSON.stringify(list));
+        }
+      } catch {}
     }, (error) => {
         console.error("Error fetching investments:", error);
         setInvestmentsLoaded(true);
     });
 
     return () => unsubInvestments();
-  }, [user]);
+  }, [user, profile]);
 
   const [showCheckInPopup, setShowCheckInPopup] = useState(false);
   const [claimStatus, setClaimStatus] = useState<'idle' | 'claiming' | 'claimed'>('idle');
@@ -214,7 +247,6 @@ export default function Homepage() {
   };
 
   // Compound popup states
-  const [investmentsLoaded, setInvestmentsLoaded] = useState(false);
   const [showCompoundPopup, setShowCompoundPopup] = useState(false);
   const [showCompoundSuccess, setShowCompoundSuccess] = useState(false);
   const [isConfirmingSkip, setIsConfirmingSkip] = useState(false);
@@ -871,13 +903,14 @@ export default function Homepage() {
             <BetaHomeCustomizer
               user={user}
               profile={profile}
-              investments={investments}
+              investments={effectiveInvestments}
               isLight={isLight}
               renderBalanceBoard={renderBalanceBoard}
               openTransferModal={openTransferModal}
               navigate={navigate}
               isEditing={isBetaHomeEditing}
               setIsEditing={setIsBetaHomeEditing}
+              isLoaded={isInvestmentsAuthoritativelyKnown}
             />
           </div>
         ) : (
@@ -925,10 +958,11 @@ export default function Homepage() {
             {/* ROI Engine Stats */}
             <div className="w-full max-w-xl mx-auto px-1">
               <ROIEngineStats 
-                investments={investments}
+                investments={effectiveInvestments}
                 profile={profile}
                 user={user}
                 variant="home"
+                isLoaded={isInvestmentsAuthoritativelyKnown}
               />
             </div>
           </div>
@@ -946,10 +980,11 @@ export default function Homepage() {
             {/* ROI Engine Card */}
             <div className="w-full">
               <ROIEngineStats 
-                investments={investments}
+                investments={effectiveInvestments}
                 profile={profile}
                 user={user}
                 variant="home"
+                isLoaded={isInvestmentsAuthoritativelyKnown}
               />
             </div>
           </div>

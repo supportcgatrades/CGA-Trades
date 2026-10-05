@@ -280,6 +280,8 @@ interface AuthContextType {
   syncAuthSession: (signedInUser?: FirebaseUser) => Promise<void>;
   plans: any[];
   expectedDailyRoi: number;
+  activeInvestments: any[];
+  activeInvestmentsLoaded: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -291,7 +293,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [plans, setPlans] = useState<any[]>(DEFAULT_PLANS);
   const plansRef = useRef<any[]>(DEFAULT_PLANS);
   const unsubscribeProfileRef = useRef<(() => void) | null>(null);
-  const [activeInvestments, setActiveInvestments] = useState<any[]>([]);
+  const [activeInvestments, setActiveInvestments] = useState<any[]>(() => {
+    try {
+      if (typeof window !== 'undefined') {
+        const cached = sessionStorage.getItem('cga_active_investments_cache');
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        }
+      }
+    } catch {}
+    return [];
+  });
+  const [activeInvestmentsLoaded, setActiveInvestmentsLoaded] = useState<boolean>(() => {
+    try {
+      if (typeof window !== 'undefined') {
+        const cached = sessionStorage.getItem('cga_active_investments_cache');
+        if (cached) return true;
+      }
+    } catch {}
+    return false;
+  });
   const [compoundTransactions, setCompoundTransactions] = useState<any[]>([]);
   const [globalRoiConfig, setGlobalRoiConfig] = useState<any>(null);
 
@@ -1490,8 +1512,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       unsubscribeProfileRef.current();
       unsubscribeProfileRef.current = null;
     }
+    try {
+      if (typeof window !== 'undefined') {
+        sessionStorage.removeItem('cga_active_investments_cache');
+        sessionStorage.removeItem('cga_investments_cache');
+      }
+    } catch {}
     setUser(null);
     setProfile(null);
+    setActiveInvestments([]);
+    setActiveInvestmentsLoaded(false);
     setLoading(false);
     await auth.signOut();
   }, []);
@@ -1499,13 +1529,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!user) {
       setActiveInvestments([]);
+      setActiveInvestmentsLoaded(false);
       return;
     }
 
-    const isCipher = isCipherAdmin(user);
+    const isCipher = isCipherAdmin(user) || profile?.role === 'cipher';
+    const isGoogleUser = Boolean(profile?.is_google_user || user.providerData?.some(p => p.providerId === 'google.com'));
+    const isVerified = user.emailVerified || profile?.email_verified || isGoogleUser || isCipher;
                      
-    if (!user.emailVerified && !isCipher) {
+    if (!isVerified) {
       setActiveInvestments([]);
+      setActiveInvestmentsLoaded(true);
       return;
     }
 
@@ -1518,12 +1552,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const unsub = onSnapshot(q, (snap) => {
       const list = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setActiveInvestments(list);
+      setActiveInvestmentsLoaded(true);
+      try {
+        if (typeof window !== 'undefined') {
+          sessionStorage.setItem('cga_active_investments_cache', JSON.stringify(list));
+        }
+      } catch {}
     }, (err) => {
       console.warn("[AuthContext:ActiveInvestments] subscription blocked:", err);
+      setActiveInvestmentsLoaded(true);
     });
 
     return () => unsub();
-  }, [user]);
+  }, [user, profile]);
 
   useEffect(() => {
     if (!user) {
@@ -1531,9 +1572,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    const isCipher = isCipherAdmin(user);
+    const isCipher = isCipherAdmin(user) || profile?.role === 'cipher';
+    const isGoogleUser = Boolean(profile?.is_google_user || user.providerData?.some(p => p.providerId === 'google.com'));
+    const isVerified = user.emailVerified || profile?.email_verified || isGoogleUser || isCipher;
                      
-    if (!user.emailVerified && !isCipher) {
+    if (!isVerified) {
       setCompoundTransactions([]);
       return;
     }
@@ -1552,7 +1595,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
 
     return () => unsub();
-  }, [user]);
+  }, [user, profile]);
 
   const dynamicPlans = plans.map(p => {
     const isWeekend = isWeekendROI();
@@ -1624,7 +1667,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [loading]);
 
   return (
-    <AuthContext.Provider value={{ user, profile, loading, logout, refreshAuth, syncAuthSession, plans: dynamicPlans, expectedDailyRoi }}>
+    <AuthContext.Provider value={{ user, profile, loading, logout, refreshAuth, syncAuthSession, plans: dynamicPlans, expectedDailyRoi, activeInvestments, activeInvestmentsLoaded }}>
       {children}
     </AuthContext.Provider>
   );

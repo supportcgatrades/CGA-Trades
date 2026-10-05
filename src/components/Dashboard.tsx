@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { motion } from 'motion/react';
 import { 
   TrendingUp, 
@@ -25,7 +25,7 @@ import {
   Gift
 } from 'lucide-react';
 import { cn, formatCurrency } from '../lib/utils';
-import { useAuth, getRoiByAmountDynamic, calculateExpectedDailyRoi } from '../contexts/AuthContext';
+import { useAuth, getRoiByAmountDynamic, calculateExpectedDailyRoi, isCipherAdmin } from '../contexts/AuthContext';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { collection, query, where, orderBy, limit, onSnapshot, doc, updateDoc, getDocs, runTransaction, increment } from 'firebase/firestore';
 import { db } from '../lib/firebase';
@@ -114,7 +114,7 @@ const DashboardCard = React.memo(({ icon: Icon, label, value, subtext, color, hi
 });
 
 export default function Dashboard() {
-  const { user, profile, plans, expectedDailyRoi } = useAuth();
+  const { user, profile, plans, expectedDailyRoi, activeInvestments: authActiveInvestments, activeInvestmentsLoaded } = useAuth();
   const { isTransferModalOpen, openTransferModal, closeTransferModal, setMrBActivationPopup, setIsWelcomeBonusDeductedPopupOpen } = useUI();
   const { isLight } = useTheme();
   const { isBeta } = useMode();
@@ -130,7 +130,37 @@ export default function Dashboard() {
       navigate(location.pathname + (location.hash === '#inactive' ? '' : location.hash), { replace: true, state: {} });
     }
   }, [location, navigate]);
-  const [investments, setInvestments] = useState<any[]>([]);
+
+  const [investmentsLoaded, setInvestmentsLoaded] = useState<boolean>(() => {
+    try {
+      if (typeof window !== 'undefined' && sessionStorage.getItem('cga_investments_cache')) {
+        return true;
+      }
+    } catch {}
+    return false;
+  });
+
+  const [investments, setInvestments] = useState<any[]>(() => {
+    try {
+      if (typeof window !== 'undefined') {
+        const cached = sessionStorage.getItem('cga_investments_cache');
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        }
+      }
+    } catch {}
+    return [];
+  });
+
+  const effectiveInvestments = useMemo(() => {
+    if (investments && investments.length > 0) return investments;
+    if (authActiveInvestments && authActiveInvestments.length > 0) return authActiveInvestments;
+    return [];
+  }, [investments, authActiveInvestments]);
+
+  const isInvestmentsAuthoritativelyKnown = investmentsLoaded || activeInvestmentsLoaded || effectiveInvestments.some((i: any) => i.status === 'active');
+
   const [showActiveModal, setShowActiveModal] = useState(false);
   const [showInactiveModal, setShowInactiveModal] = useState(false);
   const [isActivating, setIsActivating] = useState<string | null>(null);
@@ -140,10 +170,11 @@ export default function Dashboard() {
   const dailyYield = expectedDailyRoi;
 
   useEffect(() => {
-    if (!user || !profile) return;
+    if (!user) return;
     
-    const isCipher = profile.role === 'cipher';
-    const isVerified = user.emailVerified || isCipher;
+    const isCipher = profile?.role === 'cipher' || isCipherAdmin(user);
+    const isGoogleUser = Boolean(profile?.is_google_user || user?.providerData?.some(p => p.providerId === 'google.com'));
+    const isVerified = user.emailVerified || profile?.email_verified || isGoogleUser || isCipher;
 
     if (!isVerified) return;
 
@@ -152,8 +183,15 @@ export default function Dashboard() {
     const unsubInvestmentsList = onSnapshot(qInv, (snap) => {
       const list = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setInvestments(list);
+      setInvestmentsLoaded(true);
+      try {
+        if (typeof window !== 'undefined') {
+          sessionStorage.setItem('cga_investments_cache', JSON.stringify(list));
+        }
+      } catch {}
     }, (error) => {
       console.warn("Investments list listener blocked:", error.message);
+      setInvestmentsLoaded(true);
     });
 
     // Listen to referrals
@@ -249,7 +287,7 @@ export default function Dashboard() {
       unsubWithdrawals();
       unsubTransfers();
     };
-  }, [user]);
+  }, [user, profile]);
 
   const activateInvestment = async (invId: string) => {
     if (!user || !profile) return;
@@ -756,10 +794,11 @@ export default function Dashboard() {
 
           {/* ROI Performance Section */}
           <ROIEngineStats 
-            investments={investments}
+            investments={effectiveInvestments}
             profile={profile}
             user={user}
             variant="dashboard"
+            isLoaded={isInvestmentsAuthoritativelyKnown}
           />
 
           {/* History */}

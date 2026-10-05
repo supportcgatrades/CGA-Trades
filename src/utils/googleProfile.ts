@@ -51,10 +51,10 @@ export function isGoogleProfileIncomplete(
   // Authoritative check: If explicitly completed, user is verified
   if (profile.profile_completed === true) return false;
 
-  // If explicitly flagged as incomplete
-  if (profile.profile_completed === false) return true;
+  // If user already has transfer/transaction PIN set, they have completed verification
+  if (profile.transfer_pin || profile.transaction_pin) return false;
 
-  // Fallback check on required profile fields if profile_completed is undefined
+  // Authoritative check on required profile fields (phone and country)
   const rawPhone = String(profile.phone || '').trim();
   const hasPhone = rawPhone.length >= 5;
 
@@ -71,6 +71,14 @@ export function isGoogleProfileIncomplete(
   if (hasPhone && hasCountry) {
     return false;
   }
+
+  // Active investor check: if user already has an active investment balance or investment credited
+  if (typeof profile.total_invested === 'number' && profile.total_invested > 0) {
+    return false;
+  }
+
+  // If explicitly flagged as incomplete and lacks phone or country
+  if (profile.profile_completed === false) return true;
 
   return true;
 }
