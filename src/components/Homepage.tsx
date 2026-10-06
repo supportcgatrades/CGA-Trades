@@ -126,12 +126,6 @@ export default function Homepage() {
 
   useEffect(() => {
     if (!user) return;
-    
-    const isCipher = profile?.role === 'cipher';
-    const isGoogleUser = Boolean(profile?.is_google_user || user?.providerData?.some(p => p.providerId === 'google.com'));
-    const isVerified = user.emailVerified || profile?.email_verified || isGoogleUser || isCipher;
-
-    if (!isVerified) return;
 
     // Listen to investments to determine state
     const qInv = query(collection(db, 'investments'), where('user_id', '==', user.uid));
@@ -810,7 +804,7 @@ export default function Homepage() {
   ].filter(item => !item.betaOnly || isBeta);
 
   return (
-    <div className="w-full flex flex-col items-center pt-0 md:pt-4 px-3 lg:px-0">
+    <div className="w-full flex flex-col items-center pt-0 -mt-1 md:-mt-3 lg:-mt-4 px-3 lg:px-0">
       {/* Mobile Two-Stage Pull-Down Gesture (Refresh & Mode Switch) */}
       <MobilePullDownGesture />
 
@@ -833,7 +827,7 @@ export default function Homepage() {
                   initial={{ opacity: 0, y: -5 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.5, ease: 'easeOut' }}
-                  className="text-left py-1"
+                  className="text-left pt-0 pb-1"
                 >
                   <h2 className="text-xl md:text-2xl font-bold tracking-tight">
                     <span className="text-[#009e42]">{getGreeting()}</span>, <span className={cn(isLight ? "text-[#111827]" : "text-white")}>{toTitleCase((profile?.name ? profile.name.trim().split(/\s+/)[0] : '') || 'User')}</span>
@@ -883,14 +877,14 @@ export default function Homepage() {
             }}
           >
             {/* Dynamic Greeting on Mobile */}
-            <div className="w-full max-w-xl mx-auto px-1 select-none">
+            <div className="w-full max-w-xl mx-auto px-1 select-none -mt-1">
               <AnimatePresence>
                 {showGreeting && (
                   <motion.div
                     initial={{ opacity: 0, y: -5 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.5, ease: 'easeOut' }}
-                    className="text-center md:text-left py-1"
+                    className="text-center md:text-left pt-0 pb-1"
                   >
                     <h2 className="text-xl md:text-2xl font-bold tracking-tight">
                       <span className="text-[#009e42]">{getGreeting()}</span>, <span className={cn(isLight ? "text-[#111827]" : "text-white")}>{toTitleCase((profile?.name ? profile.name.trim().split(/\s+/)[0] : '') || 'User')}</span>

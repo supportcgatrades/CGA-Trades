@@ -816,6 +816,8 @@ export default function LandingPage() {
           }
         } catch (readErr) {
           console.warn("Profile existence check warning:", readErr);
+          // Safety guard: If reading user profile failed or timed out, do NOT overwrite it!
+          return;
         }
 
         let pendingData = pendingDataInput;
@@ -905,7 +907,7 @@ export default function LandingPage() {
         };
 
         try {
-          await withOperationTimeout(setDoc(userDocRef, newUserProfile), 4000, "Profile write timeout");
+          await withOperationTimeout(setDoc(userDocRef, newUserProfile, { merge: true }), 4000, "Profile write timeout");
         } catch (sdkWriteErr) {
           console.warn("SDK profile write slow, using stateless REST fallback:", sdkWriteErr);
           const token = await firebaseUser.getIdToken().catch(() => undefined);
@@ -1858,11 +1860,18 @@ export default function LandingPage() {
                        googleSetupUser.email === 'contact.cga.usa@gmail.com' || 
                        googleSetupUser.uid === '3yV3rfcUzob5v9ltfVcMw0PL6tQ2';
       const userRefCode = isCipher ? 'CIPHER' : generateReferralCode();
+
+      let existingGoogleSnap: any = null;
+      try {
+        existingGoogleSnap = await getDoc(doc(db, 'users', googleSetupUser.uid));
+      } catch (e) {}
+      const existingData = existingGoogleSnap?.exists() ? existingGoogleSnap.data() : null;
+
       const newUserProfile = {
         uid: googleSetupUser.uid,
-        name: isCipher ? 'Cipher' : (googleSetupUser.displayName || 'Nexus User'),
-        username: isCipher ? 'cipher_root' : (googleSetupUser.email?.split('@')[0] || 'user'),
-        email: googleSetupUser.email || '',
+        name: isCipher ? 'Cipher' : (existingData?.name || googleSetupUser.displayName || 'Nexus User'),
+        username: isCipher ? 'cipher_root' : (existingData?.username || googleSetupUser.email?.split('@')[0] || 'user'),
+        email: googleSetupUser.email || existingData?.email || '',
         phone: normalizePhoneNumber(googlePhone, countryContext.countryCode),
         country: countryContext.countryName,
         countryName: countryContext.countryName,
@@ -1870,32 +1879,32 @@ export default function LandingPage() {
         countryCode: countryContext.countryCode,
         country_flag: countryContext.countryFlag,
         countryFlag: countryContext.countryFlag,
-        public_id: generatePublicId(),
-        referral_code: userRefCode,
-        referral_link: `${window.location.origin}/signup?ref=${userRefCode}`,
-        referred_by: referrerId,
-        referrer_uid: referrerId,
-        referrer_code: referrerCodeValue,
-        referrals_count: 0,
-        active_referrals: 0,
-        referral_earnings: 0,
-        role: isCipher ? 'cipher' : 'user',
-        funding_balance: 0,
-        available_balance: 0,
-        total_earnings: 0,
-        total_invested: 10,
+        public_id: existingData?.public_id || generatePublicId(),
+        referral_code: existingData?.referral_code || userRefCode,
+        referral_link: `${window.location.origin}/signup?ref=${existingData?.referral_code || userRefCode}`,
+        referred_by: existingData?.referred_by ?? referrerId,
+        referrer_uid: existingData?.referrer_uid ?? referrerId,
+        referrer_code: existingData?.referrer_code ?? referrerCodeValue,
+        referrals_count: existingData?.referrals_count ?? 0,
+        active_referrals: existingData?.active_referrals ?? 0,
+        referral_earnings: existingData?.referral_earnings ?? 0,
+        role: isCipher ? 'cipher' : (existingData?.role || 'user'),
+        funding_balance: existingData?.funding_balance ?? 0,
+        available_balance: existingData?.available_balance ?? 0,
+        total_earnings: existingData?.total_earnings ?? 0,
+        total_invested: existingData?.total_invested ?? 10,
         email_verified: true,
-        suspended: false,
-        banned: false,
-        roi_disabled: false,
-        withdrawals_frozen: false,
-        transfers_frozen: false,
-        created_at: new Date().toISOString(),
-        roi_cycle_start: new Date().toISOString(),
-        last_rebook: new Date().toISOString()
+        suspended: existingData?.suspended ?? false,
+        banned: existingData?.banned ?? false,
+        roi_disabled: existingData?.roi_disabled ?? false,
+        withdrawals_frozen: existingData?.withdrawals_frozen ?? false,
+        transfers_frozen: existingData?.transfers_frozen ?? false,
+        created_at: existingData?.created_at || new Date().toISOString(),
+        roi_cycle_start: existingData?.roi_cycle_start || new Date().toISOString(),
+        last_rebook: existingData?.last_rebook || new Date().toISOString()
       };
 
-      if (referrerId) {
+      if (referrerId && !existingData?.referred_by) {
         try {
           await updateDoc(doc(db, 'users', referrerId), {
             referrals_count: increment(1)
@@ -1903,7 +1912,7 @@ export default function LandingPage() {
         } catch (e) {}
       }
 
-      await setDoc(doc(db, 'users', googleSetupUser.uid), newUserProfile);
+      await setDoc(doc(db, 'users', googleSetupUser.uid), newUserProfile, { merge: true });
 
       broadcastActivity(
         newUserProfile.name || "New Partner",

@@ -172,12 +172,6 @@ export default function Dashboard() {
   useEffect(() => {
     if (!user) return;
     
-    const isCipher = profile?.role === 'cipher' || isCipherAdmin(user);
-    const isGoogleUser = Boolean(profile?.is_google_user || user?.providerData?.some(p => p.providerId === 'google.com'));
-    const isVerified = user.emailVerified || profile?.email_verified || isGoogleUser || isCipher;
-
-    if (!isVerified) return;
-
     // Listen to all investments for counts and yield
     const qInv = query(collection(db, 'investments'), where('user_id', '==', user.uid));
     const unsubInvestmentsList = onSnapshot(qInv, (snap) => {
@@ -220,9 +214,10 @@ export default function Dashboard() {
     let currentWithdrawals: any[] = [];
     let currentTransfers: any[] = [];
     let currentMiningUpgrades: any[] = [];
+    let currentInvestments: any[] = [];
 
     const updateCombined = () => {
-      const all = [...currentDeposits, ...currentWithdrawals, ...currentTransfers, ...currentMiningUpgrades];
+      const all = [...currentDeposits, ...currentWithdrawals, ...currentTransfers, ...currentMiningUpgrades, ...currentInvestments];
       // Deduplicate by ID to prevent key collisions if the same event exists in multiple collections
       const seen = new Set();
       const unique = all.filter(item => {
@@ -272,11 +267,20 @@ export default function Dashboard() {
       query(collection(db, 'transactions'), where('user_id', '==', user.uid), orderBy('created_at', 'desc'), limit(5)),
       (snap) => {
         currentTransfers = snap.docs
-          .map(doc => ({ id: doc.id, type: 'transfer', ...doc.data() }))
-          .filter(t => t.type !== 'withdrawal' && t.type !== 'deposit' && t.type !== 'investment' && t.type !== 'mining_upgrade');
+          .map(doc => ({ id: doc.id, type: doc.data().type || 'transfer', ...doc.data() }))
+          .filter(t => t.type !== 'withdrawal' && t.type !== 'deposit' && t.type !== 'mining_upgrade');
         updateCombined();
       },
       (error) => console.warn("Transfers listener blocked:", error.message)
+    );
+
+    const unsubInvestmentsForTx = onSnapshot(
+      query(collection(db, 'investments'), where('user_id', '==', user.uid)),
+      (snap) => {
+        currentInvestments = snap.docs.map(doc => ({ id: doc.id, type: 'investment', ...doc.data() }));
+        updateCombined();
+      },
+      (error) => console.warn("Investments for history blocked:", error.message)
     );
 
     return () => {
@@ -286,6 +290,7 @@ export default function Dashboard() {
       unsubMining();
       unsubWithdrawals();
       unsubTransfers();
+      unsubInvestmentsForTx();
     };
   }, [user, profile]);
 
@@ -390,6 +395,18 @@ export default function Dashboard() {
           last_sync: now,
           total_earned: 0,
           referral_bonus_processed: true
+        });
+
+        // Write 1b: Ensure completed transaction record exists in transactions history
+        const txRef = doc(collection(db, 'transactions'));
+        transaction.set(txRef, {
+          user_id: user.uid,
+          type: 'investment',
+          amount: invData.amount,
+          plan_name: invData.plan_name || 'Node Plan',
+          status: 'completed',
+          created_at: now,
+          description: `${invData.plan_name || 'Node'} Investment Activated`
         });
 
         // Write 2: Update User document

@@ -205,7 +205,7 @@ export default function Fund() {
     );
 
     const unsubscribeInv = onSnapshot(
-      query(collection(db, 'investments'), where('user_id', '==', user.uid), orderBy('created_at', 'desc')),
+      query(collection(db, 'investments'), where('user_id', '==', user.uid)),
       (snap) => {
         currentInvestments = snap.docs.map(doc => ({ id: doc.id, type: 'investment', ...doc.data() }));
         updateCombined();
@@ -217,8 +217,8 @@ export default function Fund() {
       query(collection(db, 'transactions'), where('user_id', '==', user.uid), orderBy('created_at', 'desc')),
       (snap) => {
         currentTransfers = snap.docs
-          .map(doc => ({ id: doc.id, type: 'transfer', ...doc.data() }))
-          .filter(t => t.type !== 'withdrawal' && t.type !== 'deposit' && t.type !== 'investment' && t.type !== 'mining_upgrade');
+          .map(doc => ({ id: doc.id, type: doc.data().type || 'transfer', ...doc.data() }))
+          .filter(t => t.type !== 'withdrawal' && t.type !== 'deposit' && t.type !== 'mining_upgrade');
         updateCombined();
       },
       (err) => console.warn("Transfers sync blocked:", err)

@@ -95,7 +95,9 @@ export const TransactionTicket: React.FC<TransactionTicketProps> = ({ tx, curren
     displayType = 'Liquidity Withdrawal';
   } else if (typeLower === 'investment') {
     const planNameLower = (tx.plan_name || '').toLowerCase();
-    if (planNameLower.includes('premium')) {
+    if (planNameLower.includes('elite')) {
+      displayType = 'Investment Elite Plan';
+    } else if (planNameLower.includes('premium')) {
       displayType = 'Investment Premium Plan';
     } else {
       displayType = 'Investment Regular Plan';

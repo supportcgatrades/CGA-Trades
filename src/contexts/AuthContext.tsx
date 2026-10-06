@@ -409,9 +409,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         last_rebook: nowIso
       };
 
+      const userDocRef = doc(db, 'users', uid);
+      try {
+        const existingUserSnap = await getDoc(userDocRef);
+        if (existingUserSnap.exists()) {
+          const existingDocData = existingUserSnap.data();
+          setProfile(existingDocData as UserProfile);
+          return;
+        }
+      } catch {}
+
       setProfile((prev) => prev || healedProfile);
 
-      const userDocRef = doc(db, 'users', uid);
       try {
         await setDoc(userDocRef, healedProfile, { merge: true });
       } catch {
@@ -1243,6 +1252,231 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  const runInvestmentReconciliationCheck = useCallback(async (firebaseUser: FirebaseUser, profileData: UserProfile) => {
+    const currentWithdrawMethods = profileData.withdraw_methods || {};
+    if (currentWithdrawMethods.investments_reconciled_v2) return;
+
+    const userDocRef = doc(db, 'users', firebaseUser.uid);
+
+    try {
+      // 1. Query existing investments for this user
+      let existingInvs: any[] = [];
+      try {
+        const invQ = query(collection(db, 'investments'), where('user_id', '==', firebaseUser.uid));
+        const invSnap = await getDocs(invQ);
+        existingInvs = invSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      } catch (err) {
+        console.warn("[Investment Reconciliation] Failed to fetch investments:", err);
+      }
+
+      // 2. Query existing transactions for this user
+      let existingTxs: any[] = [];
+      try {
+        const txQ = query(collection(db, 'transactions'), where('user_id', '==', firebaseUser.uid));
+        const txSnap = await getDocs(txQ);
+        existingTxs = txSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      } catch (err) {
+        console.warn("[Investment Reconciliation] Failed to fetch transactions:", err);
+      }
+
+      // Helper to match plan
+      const matchPlan = (amt: number, nameHint?: string) => {
+        const allPlans = plansRef.current || DEFAULT_PLANS;
+        if (nameHint) {
+          const lowerHint = nameHint.toLowerCase();
+          const found = allPlans.find((p: any) => 
+            p.name?.toLowerCase().includes(lowerHint) || 
+            p.id?.toLowerCase().includes(lowerHint)
+          );
+          if (found) return found;
+        }
+        if (amt >= 1000000) return allPlans.find((p: any) => p.id === 'elite') || DEFAULT_PLANS[2];
+        if (amt >= 100000) return allPlans.find((p: any) => p.id === 'premium') || DEFAULT_PLANS[1];
+        return allPlans.find((p: any) => p.id === 'regular') || DEFAULT_PLANS[0];
+      };
+
+      let needsProfileUpdate = false;
+      const userUpdates: any = {};
+      let recoveredInvestmentsCount = 0;
+
+      // Check authoritative transactions for missing investments
+      const investmentTxs = existingTxs.filter(t => 
+        (t.type === 'investment' || t.type_detail === 'investment') &&
+        Number(t.amount) >= 100
+      );
+
+      for (const tx of investmentTxs) {
+        const txAmount = Number(tx.amount) || 0;
+        const hasMatchingInv = existingInvs.some(inv => 
+          Math.abs(Number(inv.amount) - txAmount) < 0.01
+        );
+
+        if (!hasMatchingInv) {
+          // Authoritative investment transaction exists, but investment doc was missing/lost!
+          const plan = matchPlan(txAmount, tx.plan_name);
+          const newInvRef = doc(collection(db, 'investments'));
+          const nowIso = tx.created_at || new Date().toISOString();
+          
+          await setDoc(newInvRef, {
+            user_id: firebaseUser.uid,
+            user_name: profileData.name || firebaseUser.displayName || 'Client',
+            plan_name: plan.name,
+            amount: txAmount,
+            dailyRoi: plan.roi,
+            duration: plan.duration,
+            payment_method: tx.method || 'wallet',
+            reference: tx.reference || 'reconciled_from_tx',
+            status: tx.status === 'completed' || tx.status === 'approved' ? 'active' : 'inactive',
+            referral_bonus_processed: true,
+            created_at: nowIso,
+            activated_at: nowIso,
+            last_sync: nowIso,
+            total_earned: profileData.total_earnings || 0,
+            reconciled_source: 'transaction'
+          });
+
+          existingInvs.push({
+            id: newInvRef.id,
+            user_id: firebaseUser.uid,
+            plan_name: plan.name,
+            amount: txAmount,
+            status: 'active'
+          });
+          recoveredInvestmentsCount++;
+        }
+      }
+
+      // Check if user has an asset balance or legacy upgraded assets (> $10 welcome bonus)
+      // but ZERO investments were found
+      const currentInvested = Number(profileData.total_invested) || 0;
+      const remainingAssets = Number(profileData.remaining_upgraded_assets) || 0;
+      const effectiveInvested = Math.max(currentInvested, remainingAssets);
+      const netInvestedExcludingBonus = profileData.welcome_bonus_deducted 
+        ? effectiveInvested 
+        : Math.max(0, effectiveInvested - 10);
+
+      if (existingInvs.length === 0 && netInvestedExcludingBonus >= 100) {
+        // Authoritative ledger proves user had invested assets, but investment record was missing!
+        const plan = matchPlan(netInvestedExcludingBonus, profileData.active_plan_name || profileData.active_plan_id);
+        const newInvRef = doc(collection(db, 'investments'));
+        const nowIso = profileData.roi_cycle_start || profileData.created_at || new Date().toISOString();
+
+        await setDoc(newInvRef, {
+          user_id: firebaseUser.uid,
+          user_name: profileData.name || firebaseUser.displayName || 'Client',
+          plan_name: plan.name,
+          amount: netInvestedExcludingBonus,
+          dailyRoi: plan.roi,
+          duration: plan.duration,
+          payment_method: 'wallet',
+          reference: 'reconciled_from_ledger',
+          status: 'active',
+          referral_bonus_processed: true,
+          created_at: nowIso,
+          activated_at: nowIso,
+          last_sync: nowIso,
+          total_earned: profileData.total_earnings || 0,
+          reconciled_source: 'ledger'
+        });
+
+        existingInvs.push({
+          id: newInvRef.id,
+          user_id: firebaseUser.uid,
+          plan_name: plan.name,
+          amount: netInvestedExcludingBonus,
+          status: 'active'
+        });
+        recoveredInvestmentsCount++;
+
+        // Also ensure transaction record exists for history
+        const hasTx = existingTxs.some(t => t.type === 'investment' && Math.abs(Number(t.amount) - netInvestedExcludingBonus) < 0.01);
+        if (!hasTx) {
+          const newTxRef = doc(collection(db, 'transactions'));
+          await setDoc(newTxRef, {
+            user_id: firebaseUser.uid,
+            type: 'investment',
+            amount: netInvestedExcludingBonus,
+            plan_name: plan.name,
+            status: 'completed',
+            created_at: nowIso,
+            description: `${plan.name} Node Investment`
+          });
+        }
+      }
+
+      // Check if user's total_invested in profile was wiped to $10 or $0, but user has valid investments
+      const totalFromInvs = existingInvs.reduce((sum, i) => sum + (Number(i.amount) || 0), 0);
+      if (totalFromInvs > 0 && currentInvested <= 10) {
+        // Profile total_invested was corrupted/overwritten by signup logic!
+        const expectedTotal = totalFromInvs + (profileData.welcome_bonus_deducted ? 0 : 10);
+        userUpdates.total_invested = expectedTotal;
+        needsProfileUpdate = true;
+      }
+
+      // Ensure for every existing investment in investments, a transaction exists for History
+      for (const inv of existingInvs) {
+        const invAmount = Number(inv.amount) || 0;
+        if (invAmount >= 100) {
+          const hasTx = existingTxs.some(t => 
+            (t.type === 'investment' || t.type_detail === 'investment') &&
+            Math.abs(Number(t.amount) - invAmount) < 0.01
+          );
+          if (!hasTx) {
+            const newTxRef = doc(collection(db, 'transactions'));
+            await setDoc(newTxRef, {
+              user_id: firebaseUser.uid,
+              type: 'investment',
+              amount: invAmount,
+              plan_name: inv.plan_name || 'Regular Plan',
+              status: inv.status === 'active' ? 'completed' : 'pending',
+              created_at: inv.created_at || new Date().toISOString(),
+              description: `${inv.plan_name || 'Node'} Investment`
+            });
+          }
+        }
+      }
+
+      // Auto-assign matching robot and unlock it if user has active investments
+      const hasActive = existingInvs.some(i => i.status === 'active');
+      if (hasActive) {
+        const topInv = existingInvs
+          .filter(i => i.status === 'active')
+          .sort((a, b) => (Number(b.amount) || 0) - (Number(a.amount) || 0))[0];
+        
+        let targetBot = 'AI 2.0';
+        const planLower = (topInv?.plan_name || '').toLowerCase();
+        const amt = Number(topInv?.amount) || 0;
+        if (planLower.includes('elite') || amt >= 1000000) targetBot = 'AI 3.0';
+        else if (planLower.includes('premium') || amt >= 100000) targetBot = 'AI 2.5';
+
+        if (!profileData.active_robot || profileData.active_robot === 'Default Bot' || profileData.active_robot === 'Free AI Bot') {
+          userUpdates.active_robot = targetBot;
+          const currentUnlocked = profileData.unlocked_robots || [];
+          if (!currentUnlocked.includes(targetBot)) {
+            userUpdates.unlocked_robots = Array.from(new Set([...currentUnlocked, targetBot]));
+          }
+          needsProfileUpdate = true;
+        }
+
+        if (!profileData.roi_cycle_start && !profileData.roi_disabled) {
+          userUpdates.roi_cycle_start = topInv?.activated_at || topInv?.created_at || new Date().toISOString();
+          needsProfileUpdate = true;
+        }
+      }
+
+      // Mark reconciliation complete
+      userUpdates.withdraw_methods = {
+        ...currentWithdrawMethods,
+        investments_reconciled_v2: true
+      };
+
+      await updateDoc(userDocRef, userUpdates);
+      console.log(`[Investment Reconciliation] Successfully verified user ${firebaseUser.uid}. Recovered: ${recoveredInvestmentsCount}`);
+    } catch (reconcileErr) {
+      console.error("[Investment Reconciliation Error]:", reconcileErr);
+    }
+  }, []);
+
   const fetchProfileWithRetry = useCallback(async (firebaseUser: FirebaseUser, retryCount = 0): Promise<void> => {
     // Reload user state only if unverified on initial attempt
     if (retryCount === 0 && !firebaseUser.emailVerified) {
@@ -1324,6 +1558,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           // Trigger Auto-Compound Recovery for existing users
           if (!profileData.withdraw_methods?.auto_compound_recovered_v2) {
             runAutoCompoundRecoveryCheck(currentCheckUser, profileData);
+          }
+
+          // Trigger Authoritative Investment Reconciliation & Data Recovery
+          if (!profileData.withdraw_methods?.investments_reconciled_v2) {
+            runInvestmentReconciliationCheck(currentCheckUser, profileData);
           }
 
           // ROI Background Sync
@@ -1533,16 +1772,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    const isCipher = isCipherAdmin(user) || profile?.role === 'cipher';
-    const isGoogleUser = Boolean(profile?.is_google_user || user.providerData?.some(p => p.providerId === 'google.com'));
-    const isVerified = user.emailVerified || profile?.email_verified || isGoogleUser || isCipher;
-                     
-    if (!isVerified) {
-      setActiveInvestments([]);
-      setActiveInvestmentsLoaded(true);
-      return;
-    }
-
     const q = query(
       collection(db, 'investments'),
       where('user_id', '==', user.uid),
@@ -1568,15 +1797,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!user) {
-      setCompoundTransactions([]);
-      return;
-    }
-
-    const isCipher = isCipherAdmin(user) || profile?.role === 'cipher';
-    const isGoogleUser = Boolean(profile?.is_google_user || user.providerData?.some(p => p.providerId === 'google.com'));
-    const isVerified = user.emailVerified || profile?.email_verified || isGoogleUser || isCipher;
-                     
-    if (!isVerified) {
       setCompoundTransactions([]);
       return;
     }

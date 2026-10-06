@@ -15,17 +15,19 @@ export default function MobilePullDownGesture() {
 
   const [revealHeight, setRevealHeight] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
+  const [isRetracting, setIsRetracting] = useState(false);
   const [isThresholdReached, setIsThresholdReached] = useState(false);
 
   // Mutable refs to prevent unnecessary re-attaching of event listeners on every drag frame
   const touchStartY = useRef<number | null>(null);
   const touchStartX = useRef<number | null>(null);
   const isAtTopRef = useRef<boolean>(false);
-  const isDraggingRef = useRef<boolean>(false);
+  const isDraggingStateRef = useRef<boolean>(false);
   const hasVibratedRef = useRef<boolean>(false);
   const revealHeightRef = useRef<number>(0);
   const isThresholdReachedRef = useRef<boolean>(false);
   const isSwitchingRef = useRef<boolean>(false);
+  const retractTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const toggleModeRef = useRef(toggleMode);
   toggleModeRef.current = toggleMode;
@@ -49,19 +51,53 @@ export default function MobilePullDownGesture() {
         rootEl.style.transform = `translate3d(0, ${yOffset}px, 0)`;
         rootEl.style.transition = dragging ? 'none' : 'transform 0.32s cubic-bezier(0.16, 1, 0.3, 1)';
       } else {
-        rootEl.style.transform = '';
+        rootEl.style.transform = 'translate3d(0, 0px, 0)';
         rootEl.style.transition = dragging ? 'none' : 'transform 0.32s cubic-bezier(0.16, 1, 0.3, 1)';
       }
+    };
+
+    const cancelAndCleanUp = () => {
+      isAtTopRef.current = false;
+      isDraggingStateRef.current = false;
+      revealHeightRef.current = 0;
+      isThresholdReachedRef.current = false;
+      hasVibratedRef.current = false;
+      touchStartY.current = null;
+      touchStartX.current = null;
+
+      setIsDragging(false);
+      setRevealHeight(0);
+      setIsThresholdReached(false);
+      setIsRetracting(true);
+
+      if (rootEl) {
+        rootEl.style.transition = 'transform 0.3s cubic-bezier(0.16, 1, 0.3, 1)';
+        rootEl.style.transform = 'translate3d(0, 0px, 0)';
+      }
+
+      if (retractTimerRef.current) clearTimeout(retractTimerRef.current);
+      retractTimerRef.current = setTimeout(() => {
+        setIsRetracting(false);
+        if (rootEl) {
+          rootEl.style.transform = '';
+          rootEl.style.transition = '';
+        }
+      }, 320);
     };
 
     const handleTouchStart = (e: TouchEvent) => {
       if (isSwitchingRef.current) return;
       // Only initiate if scroll position is at the very top of the page
       if (window.scrollY <= 2) {
+        if (retractTimerRef.current) {
+          clearTimeout(retractTimerRef.current);
+          retractTimerRef.current = null;
+        }
+        setIsRetracting(false);
         isAtTopRef.current = true;
         touchStartY.current = e.touches[0].clientY;
         touchStartX.current = e.touches[0].clientX;
-        isDraggingRef.current = false;
+        isDraggingStateRef.current = false;
         hasVibratedRef.current = false;
         revealHeightRef.current = 0;
         isThresholdReachedRef.current = false;
@@ -77,14 +113,7 @@ export default function MobilePullDownGesture() {
 
       // Cancel if user scrolled down into page content
       if (window.scrollY > 2) {
-        isAtTopRef.current = false;
-        isDraggingRef.current = false;
-        revealHeightRef.current = 0;
-        isThresholdReachedRef.current = false;
-        setIsDragging(false);
-        setRevealHeight(0);
-        setIsThresholdReached(false);
-        updateTransform(0, false);
+        cancelAndCleanUp();
         return;
       }
 
@@ -94,20 +123,14 @@ export default function MobilePullDownGesture() {
       const rawDeltaX = Math.abs(currentX - (touchStartX.current ?? currentX));
 
       // If predominantly horizontal swipe, don't hijack vertical pull-down
-      if (!isDraggingRef.current && rawDeltaX > Math.abs(rawDeltaY)) {
+      if (!isDraggingStateRef.current && rawDeltaX > Math.abs(rawDeltaY)) {
         return;
       }
 
       // Only handle downward drag from top of page
       if (rawDeltaY <= 0) {
-        if (isDraggingRef.current) {
-          isDraggingRef.current = false;
-          setIsDragging(false);
-          revealHeightRef.current = 0;
-          setRevealHeight(0);
-          isThresholdReachedRef.current = false;
-          setIsThresholdReached(false);
-          updateTransform(0, false);
+        if (isDraggingStateRef.current) {
+          cancelAndCleanUp();
         }
         return;
       }
@@ -117,9 +140,10 @@ export default function MobilePullDownGesture() {
         e.preventDefault();
       }
 
-      if (!isDraggingRef.current) {
-        isDraggingRef.current = true;
+      if (!isDraggingStateRef.current) {
+        isDraggingStateRef.current = true;
         setIsDragging(true);
+        setIsRetracting(false);
       }
 
       // Target maximum expansion: approximately 25% of current mobile viewport height
@@ -158,38 +182,40 @@ export default function MobilePullDownGesture() {
 
     const handleTouchEnd = () => {
       if (!isAtTopRef.current || touchStartY.current === null) {
-        touchStartY.current = null;
-        touchStartX.current = null;
-        isAtTopRef.current = false;
-        isDraggingRef.current = false;
-        revealHeightRef.current = 0;
-        isThresholdReachedRef.current = false;
-        setIsDragging(false);
-        setRevealHeight(0);
-        setIsThresholdReached(false);
-        updateTransform(0, false);
+        cancelAndCleanUp();
         return;
       }
 
       const reached = isThresholdReachedRef.current;
 
-      isDraggingRef.current = false;
-      setIsDragging(false);
-
       if (reached && !isSwitchingRef.current) {
         if (isLiteRef.current && user && isGoogleProfileIncomplete(user, profile)) {
-          updateTransform(0, false);
-          setRevealHeight(0);
-          setIsThresholdReached(false);
+          cancelAndCleanUp();
           openVerificationPrompt("Please complete your account verification to access CGA Beta.");
           return;
         }
 
         // Mode switch threshold reached: smoothly return page and trigger mode switch
         isSwitchingRef.current = true;
-        updateTransform(0, false);
+        isDraggingStateRef.current = false;
+        setIsDragging(false);
         setRevealHeight(0);
         setIsThresholdReached(false);
+        setIsRetracting(true);
+
+        if (rootEl) {
+          rootEl.style.transition = 'transform 0.3s cubic-bezier(0.16, 1, 0.3, 1)';
+          rootEl.style.transform = 'translate3d(0, 0px, 0)';
+        }
+
+        if (retractTimerRef.current) clearTimeout(retractTimerRef.current);
+        retractTimerRef.current = setTimeout(() => {
+          setIsRetracting(false);
+          if (rootEl) {
+            rootEl.style.transform = '';
+            rootEl.style.transition = '';
+          }
+        }, 320);
 
         // Execute smooth mode switch
         toggleModeRef.current(() => {
@@ -197,17 +223,9 @@ export default function MobilePullDownGesture() {
           isSwitchingRef.current = false;
         });
       } else {
-        // Did not reach threshold: smoothly spring back to normal position
-        revealHeightRef.current = 0;
-        setRevealHeight(0);
-        setIsThresholdReached(false);
-        updateTransform(0, false);
+        // Did not reach threshold or user cancelled: clean up state and smoothly return
+        cancelAndCleanUp();
       }
-
-      touchStartY.current = null;
-      touchStartX.current = null;
-      isAtTopRef.current = false;
-      hasVibratedRef.current = false;
     };
 
     window.addEventListener('touchstart', handleTouchStart, { passive: true });
@@ -220,6 +238,7 @@ export default function MobilePullDownGesture() {
       window.removeEventListener('touchmove', handleTouchMove);
       window.removeEventListener('touchend', handleTouchEnd);
       window.removeEventListener('touchcancel', handleTouchEnd);
+      if (retractTimerRef.current) clearTimeout(retractTimerRef.current);
       if (rootEl) {
         rootEl.style.transform = '';
         rootEl.style.transition = '';
@@ -228,6 +247,10 @@ export default function MobilePullDownGesture() {
   }, []); // Run once on mount; all updates are managed via refs and state without resetting transforms
 
   if (typeof document === 'undefined') return null;
+
+  // Visual state cleanup: do not render portal when not dragging and not retracting
+  if (!isDragging && !isRetracting) return null;
+  if (revealHeight <= 0 && !isRetracting) return null;
 
   const target25vh = typeof window !== 'undefined' ? Math.round(window.innerHeight * 0.25) : 180;
   const thresholdDist = target25vh * 0.85;
@@ -238,7 +261,7 @@ export default function MobilePullDownGesture() {
   return createPortal(
     <div
       className={cn(
-        "fixed top-0 left-0 right-0 z-[9999] pointer-events-none select-none md:hidden",
+        "fixed top-0 left-0 right-0 z-[9999] pointer-events-none select-none md:hidden overflow-hidden",
         isDragging
           ? "transition-none"
           : "transition-[height,opacity] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]"
@@ -246,6 +269,7 @@ export default function MobilePullDownGesture() {
       style={{
         height: `${revealHeight}px`,
         opacity: revealHeight > 0 ? 1 : 0,
+        display: revealHeight > 0 || isRetracting ? 'block' : 'none'
       }}
       aria-hidden="true"
     >
@@ -256,7 +280,7 @@ export default function MobilePullDownGesture() {
       />
 
       {/* 2. Large Smooth Half-Circle / Curved Arc Bottom Edge */}
-      <div className="relative w-full -mt-px overflow-visible pointer-events-none">
+      <div className="relative w-full -mt-px overflow-hidden pointer-events-none">
         <svg
           viewBox="0 0 100 24"
           preserveAspectRatio="none"

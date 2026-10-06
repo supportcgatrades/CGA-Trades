@@ -54,79 +54,143 @@ export const ROIEngineStats = React.memo(({ investments, profile, user, variant 
     return () => clearTimeout(timeoutId);
   }, []);
 
-  const sourceInvestments = (investments && investments.length > 0) ? investments : (authActiveInvestments || []);
-  const activeInvestments = useMemo(() => sourceInvestments.filter((i: any) => i.status === 'active'), [sourceInvestments]);
+  // Merge all investment sources without dropping active items
+  const activeInvestments = useMemo(() => {
+    const combined = [...(investments || []), ...(authActiveInvestments || [])];
+    const unique = new Map<string, any>();
+    combined.forEach((inv: any) => {
+      if (!inv) return;
+      const key = inv.id || inv._id || `${inv.plan_name}_${inv.amount}_${inv.created_at}`;
+      const existing = unique.get(key);
+      if (!existing || inv.status === 'active') {
+        unique.set(key, inv);
+      }
+    });
+    return Array.from(unique.values()).filter((i: any) => i.status === 'active');
+  }, [investments, authActiveInvestments]);
+
   const activeCount = profile?.migration_status === 'accepted' ? 1 : activeInvestments.length;
   const isConfirmedActive = activeCount > 0;
   const isStatusKnown = (isLoaded !== undefined ? isLoaded : false) || activeInvestmentsLoaded || isConfirmedActive;
   const yieldSum = expectedDailyRoi;
 
-  // Authoritative active plan type detection based on active investments & plans
-  const activePlanType = useMemo(() => {
+  // Authoritative active plan type detection based on user's active investment plan
+  const activePlanType = useMemo((): 'regular' | 'premium' | 'elite' => {
+    // 1. Check user's confirmed active investments
     if (activeInvestments && activeInvestments.length > 0) {
-      // 1. Check if any active investment matches Elite
-      const isElite = activeInvestments.some((inv: any) => {
-        const id = (inv.plan_id || '').toLowerCase();
-        const name = (inv.plan_name || '').toLowerCase();
-        return id === 'elite' || id.includes('elite') || name.includes('elite') || (inv.amount && inv.amount >= 1000000);
+      // Sort to evaluate the most recently activated / created active investment first
+      const sorted = [...activeInvestments].sort((a: any, b: any) => {
+        const timeA = new Date(a.activated_at || a.created_at || a.timestamp || 0).getTime();
+        const timeB = new Date(b.activated_at || b.created_at || b.timestamp || 0).getTime();
+        return timeB - timeA;
       });
-      if (isElite) return 'elite';
 
-      // 2. Check if any active investment matches Premium
-      const isPremium = activeInvestments.some((inv: any) => {
-        const id = (inv.plan_id || '').toLowerCase();
-        const name = (inv.plan_name || '').toLowerCase();
-        return id === 'premium' || id.includes('premium') || name.includes('premium') || (inv.amount && inv.amount >= 100000 && inv.amount < 1000000);
-      });
-      if (isPremium) return 'premium';
+      const resolvePlanFromInv = (inv: any): 'regular' | 'premium' | 'elite' | null => {
+        if (!inv) return null;
 
-      // 3. Match against plans array
-      const firstActive = activeInvestments[0];
-      const matchingPlan = (plans || []).find((p: any) => 
-        p.id === firstActive.plan_id ||
-        (p.id || '').toLowerCase() === (firstActive.plan_name || '').toLowerCase() ||
-        (p.name || '').toLowerCase() === (firstActive.plan_name || '').toLowerCase() ||
-        (firstActive.amount >= p.min && firstActive.amount <= p.max)
-      );
-      if (matchingPlan) {
-        const pid = (matchingPlan.id || matchingPlan.name || '').toLowerCase();
-        if (pid.includes('elite')) return 'elite';
-        if (pid.includes('premium')) return 'premium';
+        const nameStr = String(inv.plan_name || inv.planName || inv.name || inv.plan || '').toLowerCase().trim();
+        const idStr = String(inv.plan_id || inv.planId || '').toLowerCase().trim();
+
+        // Explicit plan string matching - priority order
+        if (idStr === 'elite' || idStr.includes('elite') || nameStr.includes('elite')) {
+          return 'elite';
+        }
+        if (idStr === 'premium' || idStr.includes('premium') || nameStr.includes('premium')) {
+          return 'premium';
+        }
+        if (idStr === 'regular' || idStr.includes('regular') || nameStr.includes('regular') || nameStr.includes('standard') || nameStr.includes('basic')) {
+          return 'regular';
+        }
+
+        // Match against plans list in context
+        if (plans && Array.isArray(plans)) {
+          const matched = plans.find((p: any) => 
+            (p.id && (p.id.toLowerCase() === idStr || p.id.toLowerCase() === nameStr)) ||
+            (p.name && (p.name.toLowerCase() === nameStr || p.name.toLowerCase() === idStr))
+          );
+          if (matched) {
+            const pId = String(matched.id || '').toLowerCase();
+            const pName = String(matched.name || '').toLowerCase();
+            if (pId.includes('elite') || pName.includes('elite')) return 'elite';
+            if (pId.includes('premium') || pName.includes('premium')) return 'premium';
+            if (pId.includes('regular') || pName.includes('regular')) return 'regular';
+          }
+        }
+
+        // Fallback to investment amount threshold only if name/id was completely missing/unrecognized
+        const amt = Number(inv.amount) || 0;
+        if (amt >= 1000000) return 'elite';
+        if (amt >= 100000) return 'premium';
+        if (amt > 0) return 'regular';
+
+        return null;
+      };
+
+      for (const inv of sorted) {
+        const detected = resolvePlanFromInv(inv);
+        if (detected) return detected;
       }
 
       return 'regular';
     }
 
-    // Fallback if user is migrated or has profile-level plan
-    const profilePlan = (profile?.active_plan_id || profile?.plan || profile?.active_plan || '').toLowerCase();
-    if (profilePlan.includes('elite')) return 'elite';
-    if (profilePlan.includes('premium')) return 'premium';
+    // 2. Fallback for migrated legacy users with profile-level plan data
+    const profilePlanStr = String(
+      profile?.active_plan_name ||
+      profile?.active_plan_id ||
+      profile?.active_plan ||
+      profile?.plan_name ||
+      profile?.plan_id ||
+      profile?.plan ||
+      profile?.investment_plan ||
+      profile?.tier ||
+      profile?.migration_plan ||
+      ''
+    ).toLowerCase().trim();
 
-    const robotName = (profile?.active_robot || '').toLowerCase();
-    if (robotName.includes('3.0')) return 'elite';
-    if (robotName.includes('2.5')) return 'premium';
+    if (profilePlanStr.includes('elite')) return 'elite';
+    if (profilePlanStr.includes('premium')) return 'premium';
+    if (profilePlanStr.includes('regular')) return 'regular';
 
+    // Check migrated profile asset balance
+    const invested = Number(profile?.remaining_upgraded_assets ?? profile?.total_invested ?? 0);
+    if (invested >= 1000000) return 'elite';
+    if (invested >= 100000) return 'premium';
+
+    // Standard default baseline is always Regular (AI 2.0) - NEVER default to AI 2.5
     return 'regular';
-  }, [activeInvestments, plans, profile?.active_plan_id, profile?.plan, profile?.active_plan, profile?.active_robot]);
+  }, [activeInvestments, plans, profile]);
 
-  // Plan-specific status badge text mapping:
-  // REGULAR -> AI 2.0 ACTIVE
-  // PREMIUM -> AI 2.5 ACTIVE
-  // ELITE   -> AI 3.0 ACTIVE
-  const aiBadgeLabel = useMemo(() => {
+  // Unified canonical Bot configuration ensuring Robot asset and Status badge ALWAYS match
+  // REGULAR -> AI 2.0 robot + "AI 2.0 ACTIVE"
+  // PREMIUM -> AI 2.5 robot + "AI 2.5 ACTIVE"
+  // ELITE   -> AI 3.0 robot + "AI 3.0 ACTIVE"
+  const botConfig = useMemo(() => {
     switch (activePlanType) {
       case 'elite':
-        return 'AI 3.0 ACTIVE';
+        return {
+          robotName: 'AI 3.0',
+          badgeLabel: 'AI 3.0 ACTIVE',
+          image: ROBOT_IMAGES['AI 3.0']
+        };
       case 'premium':
-        return 'AI 2.5 ACTIVE';
+        return {
+          robotName: 'AI 2.5',
+          badgeLabel: 'AI 2.5 ACTIVE',
+          image: ROBOT_IMAGES['AI 2.5']
+        };
       case 'regular':
       default:
-        return 'AI 2.0 ACTIVE';
+        return {
+          robotName: 'AI 2.0',
+          badgeLabel: 'AI 2.0 ACTIVE',
+          image: ROBOT_IMAGES['AI 2.0']
+        };
     }
   }, [activePlanType]);
 
-  const planRobotName = activePlanType === 'elite' ? 'AI 3.0' : activePlanType === 'premium' ? 'AI 2.5' : 'AI 2.0';
-  const activeRobotImage = ROBOT_IMAGES[planRobotName] || (profile?.active_robot && ROBOT_IMAGES[profile.active_robot]) || 'https://i.imgur.com/JGTKlCJ.png';
+  const activeRobotImage = botConfig.image;
+  const aiBadgeLabel = botConfig.badgeLabel;
 
   useEffect(() => {
     if (!user || !profile || !isConfirmedActive || !profile.roi_cycle_start) {

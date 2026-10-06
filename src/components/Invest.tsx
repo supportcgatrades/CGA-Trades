@@ -596,18 +596,25 @@ export default function Invest() {
           >
             {/* Slim Header Banner with Parallax Zoom and Overlay Content */}
             <div className="relative -mx-6 -mt-8 mb-8 h-[140px] sm:h-[180px] md:h-[220px] overflow-hidden bg-white dark:bg-[#050608] border-b border-slate-200/90 dark:border-white/5 select-none group/header">
-              {/* Light Mode: Clean, premium, intentional background with subtle CGA green accents */}
-              <div className="dark:hidden absolute inset-0 bg-gradient-to-b from-[#f8fafc] via-[#f1f5f9]/70 to-[#eef2f6]/50">
-                {/* Subtle radial emerald glow at top center */}
-                <div className="absolute inset-0 bg-[radial-gradient(ellipse_70%_65%_at_50%_-15%,rgba(0,158,66,0.08),transparent_70%)]" />
-                {/* Ambient luminous soft green spheres */}
-                <div className="absolute -top-10 left-1/4 w-72 h-72 bg-[#009e42]/[0.05] rounded-full blur-3xl pointer-events-none" />
-                <div className="absolute top-2 right-1/4 w-80 h-80 bg-emerald-500/[0.04] rounded-full blur-3xl pointer-events-none" />
-                {/* Crisp subtle micro-dot grid for depth */}
-                <div className="absolute inset-0 bg-[radial-gradient(rgba(0,158,66,0.06)_1px,transparent_1px)] [background-size:24px_24px] opacity-40 pointer-events-none" />
-                {/* Soft bottom edge border accent */}
-                <div className="absolute bottom-0 inset-x-0 h-6 bg-gradient-to-t from-slate-200/40 to-transparent" />
-              </div>
+              {/* Light Mode: Crisp, vibrant background photo with premium Light Mode treatment */}
+              <motion.div 
+                style={{ scale: headerScale, y: headerY, opacity: headerOpacity }}
+                className="dark:hidden absolute inset-0 w-full h-full"
+              >
+                <img 
+                  src={investHeaderBg} 
+                  alt="Investment Plans Header" 
+                  loading="eager"
+                  fetchPriority="high"
+                  decoding="async"
+                  className="w-full h-full object-cover select-none brightness-[0.96] contrast-[1.08] saturate-[1.08]"
+                  referrerPolicy="no-referrer"
+                />
+                {/* Clean, premium Light Mode treatment: Soft atmospheric lighting that keeps image sharp while making text pop */}
+                <div className="absolute inset-0 bg-gradient-to-b from-white/30 via-white/10 to-white/65" />
+                <div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_75%_at_50%_50%,rgba(255,255,255,0.70)_0%,rgba(255,255,255,0.25)_65%,transparent_100%)]" />
+                <div className="absolute bottom-0 inset-x-0 h-6 bg-gradient-to-t from-slate-200/50 to-transparent" />
+              </motion.div>
 
               {/* Dark Mode: Preserved original parallax background image and dark gradient overlay */}
               <motion.div 
@@ -634,10 +641,10 @@ export default function Invest() {
                   transition={{ duration: 0.6, ease: "easeOut" }}
                   className="space-y-1.5"
                 >
-                  <h1 className="text-xl sm:text-2xl md:text-4xl font-black uppercase tracking-[0.15em] text-slate-900 dark:text-white font-sans drop-shadow-none dark:drop-shadow-[0_4px_12px_rgba(0,0,0,0.6)]">
-                    Investment <span className="text-[#009e42]">Plans</span>
+                  <h1 className="text-xl sm:text-2xl md:text-4xl font-black uppercase tracking-[0.15em] text-slate-900 dark:text-white font-sans drop-shadow-[0_1px_2px_rgba(255,255,255,0.8)] dark:drop-shadow-[0_4px_12px_rgba(0,0,0,0.6)]">
+                    Investment <span className="text-[#009e42] drop-shadow-none">Plans</span>
                   </h1>
-                  <p className="text-[10px] sm:text-xs md:text-sm text-slate-600 dark:text-white/60 font-medium tracking-wide max-w-xl mx-auto drop-shadow-none dark:drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)]">
+                  <p className="text-[10px] sm:text-xs md:text-sm text-slate-700 dark:text-white/60 font-semibold dark:font-medium tracking-wide max-w-xl mx-auto drop-shadow-[0_1px_2px_rgba(255,255,255,0.7)] dark:drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)]">
                     Choose an investment plan that best suits you.
                   </p>
                 </motion.div>
