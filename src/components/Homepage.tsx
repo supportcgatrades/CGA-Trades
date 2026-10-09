@@ -259,12 +259,15 @@ export default function Homepage() {
   const hasEligibleBalance = availableBalance >= 5 || rewardBalance >= 5;
 
   const shouldShowCompoundToday = !lastCompoundDate || lastCompoundDate !== todayDateStr;
-  const isAutoCompoundActive = !!(
+  const isAutoCompound = !!(
     profile?.auto_compound_enabled &&
     profile?.auto_compound_end_date &&
     new Date(profile.auto_compound_end_date).getTime() > new Date().getTime()
   );
-  const isCompoundPopupEligible = user && profile && investmentsLoaded && hasActiveInvestment && shouldShowCompoundToday && hasEligibleBalance && !isAutoCompoundActive;
+  const isAutoCompoundActive = isAutoCompound;
+
+  const isCompoundSessionDismissed = typeof window !== 'undefined' && sessionStorage.getItem('cga_compound_session_dismissed') === todayDateStr;
+  const isCompoundPopupEligible = user && profile && investmentsLoaded && hasActiveInvestment && shouldShowCompoundToday && hasEligibleBalance && !isAutoCompound && !isCompoundSessionDismissed;
 
   // Trigger Compound Popup
   useEffect(() => {
@@ -296,10 +299,12 @@ export default function Homepage() {
       return;
     }
 
+    // Check if session dismissed
+    const isDailyClaimSessionDismissed = typeof window !== 'undefined' && sessionStorage.getItem('cga_daily_claim_session_dismissed') === todayDateStr;
+    if (isDailyClaimSessionDismissed) return;
+
     // Check if yesterday or today claimed in profile record
     const claimedDates = profile?.withdraw_methods?.claimed_dates || profile?.claimed_dates || [];
-    const localNow = new Date();
-    const todayDateStr = [localNow.getFullYear(), String(localNow.getMonth() + 1).padStart(2, '0'), String(localNow.getDate()).padStart(2, '0')].join('-');
     const alreadyClaimed = claimedDates.includes(todayDateStr);
 
     if (!alreadyClaimed) {
@@ -309,20 +314,39 @@ export default function Homepage() {
       }, 1000);
       return () => clearTimeout(timer);
     }
-  }, [user, profile, investmentsLoaded, isCompoundPopupEligible, showCompoundPopup, requestPopup]);
+  }, [user, profile, investmentsLoaded, isCompoundPopupEligible, showCompoundPopup, showCompoundSuccess, requestPopup, todayDateStr]);
 
-  const handleDailyClaim = async () => {
-    if (!user || claimStatus !== 'idle') return;
+  const isClaimingRef = useRef(false);
+
+  const handleDismissDailyClaim = (e?: React.MouseEvent | React.TouchEvent) => {
+    if (e) e.stopPropagation();
+    try {
+      if (typeof window !== 'undefined') {
+        sessionStorage.setItem('cga_daily_claim_session_dismissed', todayDateStr);
+      }
+    } catch {}
+    setShowCheckInPopup(false);
+    closePopup('daily-check-in');
+  };
+
+  const handleDailyClaim = async (e?: React.MouseEvent | React.TouchEvent) => {
+    if (e) e.stopPropagation();
+    if (!user || isClaimingRef.current || claimStatus !== 'idle') return;
     
+    // Check network connectivity first
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      toast.error("Network unavailable. Please reconnect and try again.");
+      handleDismissDailyClaim();
+      return;
+    }
+    
+    isClaimingRef.current = true;
     setClaimStatus('claiming');
-    const toastId = toast.loading("Processing atomic ledger attestation...");
+    const toastId = toast.loading("Processing check-in...");
     
     try {
       const nowIso = new Date().toISOString();
       const userRef = doc(db, 'users', user.uid);
-      
-      const localNow = new Date();
-      const todayDateStr = [localNow.getFullYear(), String(localNow.getMonth() + 1).padStart(2, '0'), String(localNow.getDate()).padStart(2, '0')].join('-');
       
       const yesterdayDate = new Date(localNow);
       yesterdayDate.setDate(yesterdayDate.getDate() - 1);
@@ -345,7 +369,7 @@ export default function Homepage() {
 
         // Check if already claimed today
         if (claimedDatesSet.has(todayDateStr)) {
-          throw new Error("Safety protocol triggered: Attestation already signed for this cycle.");
+          throw new Error("Already signed attendance for today.");
         }
 
         const lastCheckInDateOnly = lastCheckIn ? lastCheckIn.split('T')[0] : '';
@@ -404,32 +428,224 @@ export default function Homepage() {
       toast.success("Successfully checked-in today! +1 TWN Point credited.", { id: toastId });
       setClaimStatus('claimed');
       
-      // Automatically redirect to the consolidated token portal after a brief premium confirmation pause
-      setTimeout(() => {
-        closePopup('daily-check-in');
-        navigate('/daily-points');
-      }, 1500);
+      // Close popup immediately upon authoritative success
+      setShowCheckInPopup(false);
+      closePopup('daily-check-in');
 
     } catch (err: any) {
+      console.error("Daily claim error:", err);
       setClaimStatus('idle');
-      toast.error(err.message || "Something went wrong.", { id: toastId });
+      toast.error(err.message || "Failed to process check-in.", { id: toastId });
+      // Dismiss for current app session so popup does not remain stuck
+      handleDismissDailyClaim();
+    } finally {
+      isClaimingRef.current = false;
     }
   };
 
-  const handleCompoundClick = async () => {
-    if (!user || isCompounding) return;
+  const isCompoundingRef = useRef(false);
+  const isTogglingAutoCompoundRef = useRef(false);
 
-    const isAutoCompoundActive = !!(
-      profile?.auto_compound_enabled &&
-      profile?.auto_compound_end_date &&
-      new Date(profile.auto_compound_end_date).getTime() > new Date().getTime()
-    );
+  const handleDismissCompound = (e?: React.MouseEvent | React.TouchEvent) => {
+    if (e) e.stopPropagation();
+    try {
+      if (typeof window !== 'undefined') {
+        sessionStorage.setItem('cga_compound_session_dismissed', todayDateStr);
+      }
+    } catch {}
+    setShowCompoundPopup(false);
+    closePopup('compound-profits');
+    setIsConfirmingSkip(false);
+    setShowDurationSelector(false);
+  };
 
-    if (isAutoCompoundActive) {
-      setShowDurationSelector(false);
+  const handleCancelClick = (e?: React.MouseEvent | React.TouchEvent) => {
+    // When a user clicks Cancel, close the popup immediately without trapping or compounding
+    handleDismissCompound(e);
+  };
+
+  const executeAutoCompoundingIfEligible = async () => {
+    if (!user || isCompoundingRef.current) return;
+    try {
+      const userRef = doc(db, 'users', user.uid);
+      const nowIso = new Date().toISOString();
+      let transferred = 0;
+
+      await runTransaction(db, async (transaction) => {
+        const userSnap = await transaction.get(userRef);
+        if (!userSnap.exists()) return;
+        const userData = userSnap.data();
+
+        if (!userData.auto_compound_enabled) return;
+
+        const curAvail = userData.available_balance || 0;
+        const curRew = userData.withdraw_methods?.reward_dollar_balance ?? userData.reward_dollar_balance ?? 0;
+
+        let availDed = curAvail >= 5 ? curAvail : 0;
+        let rewDed = curRew >= 5 ? curRew : 0;
+        const total = availDed + rewDed;
+
+        if (total < 5) return;
+        transferred = total;
+
+        const updates: any = {};
+        if (availDed > 0) {
+          updates.available_balance = increment(-availDed);
+        }
+        if (rewDed > 0) {
+          const wm = userData.withdraw_methods || {};
+          const oldRew = wm.reward_dollar_balance ?? userData.reward_dollar_balance ?? 0;
+          updates.withdraw_methods = {
+            ...wm,
+            reward_dollar_balance: oldRew - rewDed
+          };
+        }
+
+        updates.total_invested = increment(total);
+
+        const wmUpdate = updates.withdraw_methods || userData.withdraw_methods || {};
+        const existingCompounds = wmUpdate.compounded_amounts || userData.compounded_amounts || [];
+        updates.withdraw_methods = {
+          ...wmUpdate,
+          compounded_amounts: [...existingCompounds, total],
+          last_compound_popup_date: todayDateStr
+        };
+
+        if (userData.compounded_amounts) {
+          updates.compounded_amounts = [...(userData.compounded_amounts || []), total];
+        }
+
+        transaction.update(userRef, updates);
+
+        if (availDed > 0) {
+          const txRef1 = doc(collection(db, 'transactions'));
+          transaction.set(txRef1, {
+            user_id: user.uid,
+            type: 'compound',
+            type_detail: 'compound_available_balance',
+            amount: availDed,
+            status: 'approved',
+            created_at: nowIso,
+            description: 'Auto-Compounded Available Balance to active investment asset'
+          });
+        }
+        if (rewDed > 0) {
+          const txRef2 = doc(collection(db, 'transactions'));
+          transaction.set(txRef2, {
+            user_id: user.uid,
+            type: 'compound',
+            type_detail: 'compound_reward_balance',
+            amount: rewDed,
+            status: 'approved',
+            created_at: nowIso,
+            description: 'Auto-Compounded Reward Balance to active investment asset'
+          });
+        }
+
+        const notifRef = doc(collection(db, 'notifications'));
+        transaction.set(notifRef, {
+          user_id: user.uid,
+          type: 'success',
+          title: 'Balance Auto-Compounded to Assets',
+          message: `Your balance of ${formatCurrency(total)} has been automatically transferred to your Asset Portfolio.`,
+          read: false,
+          created_at: nowIso
+        });
+      });
+
+      if (transferred > 0) {
+        localStorage.setItem(`last_compound_popup_date_${user.uid}`, todayDateStr);
+        toast.success(`Auto-Compounded ${formatCurrency(transferred)} to Assets!`);
+        broadcastActivity(
+          profile?.name || "Client",
+          "Compounded Balance to Assets",
+          `$${transferred.toFixed(2)}`,
+          true,
+          "🔁"
+        );
+      }
+    } catch (e) {
+      console.warn("Auto-compound check execution:", e);
+    }
+  };
+
+  // Run auto-compound check once per session when auto-compound is active
+  useEffect(() => {
+    if (!user || !profile || !isAutoCompound) return;
+    const sessionExecutedKey = `cga_auto_compound_checked_${user.uid}_${todayDateStr}`;
+    if (typeof window !== 'undefined' && sessionStorage.getItem(sessionExecutedKey)) return;
+    try {
+      if (typeof window !== 'undefined') {
+        sessionStorage.setItem(sessionExecutedKey, '1');
+      }
+    } catch {}
+    executeAutoCompoundingIfEligible();
+  }, [user, profile?.auto_compound_enabled, isAutoCompound]);
+
+  const handleToggleAutoCompound = async (e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    if (!user || isTogglingAutoCompoundRef.current) return;
+    isTogglingAutoCompoundRef.current = true;
+
+    const willEnable = !isAutoCompound;
+    try {
+      const userRef = doc(db, 'users', user.uid);
+      if (willEnable) {
+        const now = new Date();
+        const duration = profile?.auto_compound_duration || 30;
+        const endDate = new Date(now.getTime() + duration * 86400000);
+
+        await updateDoc(userRef, {
+          auto_compound_enabled: true,
+          auto_compound_duration: duration,
+          auto_compound_start_date: now.toISOString(),
+          auto_compound_end_date: endDate.toISOString(),
+          auto_compound_expired: false
+        });
+
+        // Automatically compound any eligible funds immediately
+        await executeAutoCompoundingIfEligible();
+      } else {
+        await updateDoc(userRef, {
+          auto_compound_enabled: false,
+          auto_compound_end_date: null
+        });
+      }
+    } catch (err: any) {
+      console.error("Failed to toggle auto-compound:", err);
+      toast.error("Failed to update Auto-Compound setting.");
+    } finally {
+      isTogglingAutoCompoundRef.current = false;
+    }
+  };
+
+  const handleOpenManualCompound = (e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    if (isCompoundingRef.current) return;
+    setIsConfirmingSkip(false);
+    setShowDurationSelector(true);
+    setShowCompoundPopup(true);
+  };
+
+  const handleCompoundClick = async (e?: React.MouseEvent | React.TouchEvent) => {
+    if (e) e.stopPropagation();
+    if (!user || isCompoundingRef.current) return;
+
+    if (isAutoCompound) {
+      handleDismissCompound();
       return;
     }
 
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      toast.error("Network unavailable. Please reconnect and try again.");
+      handleDismissCompound();
+      return;
+    }
+
+    // Dismiss popup promptly so user is never trapped
+    handleDismissCompound();
+
+    isCompoundingRef.current = true;
     setIsCompounding(true);
     const toastId = toast.loading("Processing compounding transfer to Assets...");
 
@@ -468,7 +684,7 @@ export default function Homepage() {
 
         const totalToCompound = availableDeduction + rewardDeduction;
         if (totalToCompound <= 0) {
-          throw new Error("Deduction threshold not met. Minimum amount is $5.");
+          throw new Error("Eligible balance threshold not met. Minimum amount is $5.");
         }
 
         transferredAmount = totalToCompound;
@@ -552,25 +768,34 @@ export default function Homepage() {
         true,
         "🔁"
       );
-
-      setShowDurationSelector(true);
     } catch (err: any) {
       console.error("Compounding transfer failed:", err);
       toast.error(err.message || "Failed to process compounding transfer.", { id: toastId });
     } finally {
+      isCompoundingRef.current = false;
       setIsCompounding(false);
     }
   };
 
   const selectCompoundingDuration = async (days: number) => {
-    if (!user || isCompounding) return;
+    if (!user || isCompoundingRef.current) return;
+
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      toast.error("Network unavailable. Please reconnect and try again.");
+      handleDismissCompound();
+      return;
+    }
+
+    // Dismiss popup promptly so user is never trapped
+    handleDismissCompound();
+
+    isCompoundingRef.current = true;
     setIsCompounding(true);
-    const toastId = toast.loading("Activating automated daily compounding schedule...");
+    const toastId = toast.loading(`Activating ${days}-day automated compounding schedule...`);
 
     try {
       const startDate = new Date();
-      const endDate = new Date();
-      endDate.setDate(startDate.getDate() + days);
+      const endDate = new Date(startDate.getTime() + days * 86400000);
 
       const userRef = doc(db, 'users', user.uid);
 
@@ -603,42 +828,20 @@ export default function Homepage() {
       });
 
       toast.success(`Automated compounding protocol (${days} days) active!`, { id: toastId });
-      
-      closePopup('compound-profits');
-      setShowDurationSelector(false);
-      setShowCompoundSuccess(true);
+
+      // Automatically execute compounding for any currently eligible funds
+      await executeAutoCompoundingIfEligible();
     } catch (err: any) {
       console.error("Compounding schedule setup failed:", err);
       toast.error(err.message || "Failed to activate compounding schedule.", { id: toastId });
     } finally {
+      isCompoundingRef.current = false;
       setIsCompounding(false);
     }
   };
 
-  const handleCancelClick = () => {
-    setIsConfirmingSkip(true);
-  };
-
   const handleSkipConfirmYes = async () => {
-    try {
-      if (user) {
-        const userRef = doc(db, 'users', user.uid);
-        const existingWithdrawMethods = profile?.withdraw_methods || {};
-        await updateDoc(userRef, {
-          withdraw_methods: {
-            ...existingWithdrawMethods,
-            last_compound_popup_date: todayDateStr
-          }
-        });
-        localStorage.setItem(`last_compound_popup_date_${user.uid}`, todayDateStr);
-      }
-    } catch (e) {
-      console.error("Failed to update skip tracker in DB:", e);
-      if (user) localStorage.setItem(`last_compound_popup_date_${user.uid}`, todayDateStr);
-    } finally {
-      setIsConfirmingSkip(false);
-      closePopup('compound-profits');
-    }
+    handleDismissCompound();
   };
 
   const handleSkipConfirmNo = () => {
@@ -668,7 +871,7 @@ export default function Homepage() {
   const renderBalanceBoard = () => {
     return (
       <div className={cn(
-        "relative w-full h-[155px] border rounded-[24px] overflow-hidden group select-none transition-all duration-300",
+        "relative w-full h-[138px] border rounded-[24px] overflow-hidden group select-none transition-all duration-300",
         isLight 
           ? "bg-white border-slate-200/80 shadow-[0_10px_30px_rgba(0,0,0,0.03),0_0_25px_rgba(255,255,255,0.95)]" 
           : "bg-[#0B0D13]/90 border-white/10 shadow-[0_20px_50px_rgba(0,0,0,0.9)] hover:border-[#009e42]/40 hover:shadow-[0_0_35px_rgba(0,158,66,0.06)] backdrop-blur-md"
@@ -681,7 +884,7 @@ export default function Homepage() {
         <div className="absolute top-0 left-0 right-0 h-[1.5px] bg-gradient-to-r from-transparent via-[#009e42]/25 to-transparent pointer-events-none" />
         
         {/* Swipeable Area */}
-        <div className="w-full h-full relative p-6 flex flex-col justify-between">
+        <div className="w-full h-full relative px-5 py-3.5 sm:px-6 sm:py-4 flex flex-col justify-between">
           <motion.div
             key={activeSlide}
             initial={{ opacity: 0, x: 20 }}
@@ -703,8 +906,8 @@ export default function Homepage() {
             }}
           >
             {/* Name of the card: very slightly smaller at the top left */}
-            <div className="flex justify-between items-start">
-              <div className="text-left flex items-center gap-2">
+            <div className="flex justify-between items-start gap-2">
+              <div className="text-left flex items-center gap-1.5 sm:gap-2 flex-wrap">
                 <span className={cn(
                   "text-[10px] sm:text-xs font-black tracking-[0.2em] transition-colors uppercase",
                   isLight ? "text-slate-500" : "text-zinc-400"
@@ -718,11 +921,48 @@ export default function Homepage() {
                     setShowBalance(nextVal);
                     localStorage.setItem('show_homepage_balance', String(nextVal));
                   }}
-                  className="p-1 text-zinc-500 hover:text-white transition-colors"
+                  className="p-1 text-zinc-500 hover:text-white transition-colors cursor-pointer"
                   title={showBalance ? "Hide balance" : "Show balance"}
                 >
                   {showBalance ? <Eye size={12} /> : <EyeOff size={12} />}
                 </button>
+                {(balanceSlides[activeSlide].id === 'assets' || balanceSlides[activeSlide].id === 'available') && (
+                  <div className="inline-flex items-center gap-1.5 ml-0.5 sm:ml-1">
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={isAutoCompound}
+                      title={isAutoCompound ? "Auto-Compound enabled" : "Auto-Compound disabled"}
+                      onClick={handleToggleAutoCompound}
+                      className={cn(
+                        "relative inline-flex h-3.5 w-6 sm:h-4 sm:w-7 shrink-0 cursor-pointer items-center rounded-full border border-transparent transition-colors duration-200 ease-in-out focus:outline-none select-none",
+                        isAutoCompound 
+                          ? "bg-[#009e42] shadow-[0_0_8px_rgba(0,158,66,0.4)]" 
+                          : (isLight ? "bg-slate-300 hover:bg-slate-400" : "bg-white/20 hover:bg-white/30")
+                      )}
+                    >
+                      <span
+                        aria-hidden="true"
+                        className={cn(
+                          "pointer-events-none inline-block h-2.5 w-2.5 sm:h-3 sm:w-3 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out",
+                          isAutoCompound ? "translate-x-2.5 sm:translate-x-3" : "translate-x-0.5"
+                        )}
+                      />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleOpenManualCompound}
+                      className={cn(
+                        "px-2 py-0.5 rounded-full text-[8px] sm:text-[9px] font-black uppercase tracking-wider transition-all duration-200 cursor-pointer active:scale-95 border select-none shrink-0",
+                        isLight 
+                          ? "bg-slate-100 hover:bg-emerald-50 text-slate-700 hover:text-[#009e42] border-slate-200 hover:border-[#009e42]/40 shadow-sm" 
+                          : "bg-white/5 hover:bg-white/10 text-white/80 hover:text-white border-white/10 hover:border-[#009e42]/40"
+                      )}
+                    >
+                      Compound
+                    </button>
+                  </div>
+                )}
               </div>
               <button
                 onClick={(e) => {
@@ -742,7 +982,7 @@ export default function Homepage() {
             </div>
 
             {/* Figure: large and clear */}
-            <div className="text-left mt-3">
+            <div className="text-left mt-1.5">
               {showBalance ? (
                 <DynamicBalance 
                   value={formatCurrency(balanceSlides[activeSlide].value)} 
@@ -768,7 +1008,7 @@ export default function Homepage() {
           </motion.div>
 
           {/* Clean Page Indicators */}
-          <div className="absolute bottom-5 right-6 flex items-center gap-1.5 z-20">
+          <div className="absolute bottom-3.5 right-5 sm:bottom-4 sm:right-6 flex items-center gap-1.5 z-20">
             {balanceSlides.map((_, idx) => (
               <button
                 key={idx}
@@ -1094,8 +1334,8 @@ export default function Homepage() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="absolute inset-0 bg-black/60 backdrop-blur-[2px]"
-              // Persist popup: backdrop clicks are ignored so it only dismisses on claim completion
+              onClick={handleDismissDailyClaim}
+              className="absolute inset-0 bg-black/60 backdrop-blur-[2px] cursor-pointer"
             />
             
             {/* Flex column container keeping Card at top and CLAIM button below */}
@@ -1114,6 +1354,19 @@ export default function Homepage() {
                     : "bg-[#050608]/80 border border-white/10 hover:border-white/20 backdrop-blur-md shadow-[0_15px_35px_rgba(0,0,0,0.5)]"
                 )}
               >
+                {/* Dismiss X button */}
+                <button
+                  type="button"
+                  onClick={handleDismissDailyClaim}
+                  className={cn(
+                    "absolute top-3 right-3 p-1.5 rounded-full transition-colors cursor-pointer z-20",
+                    isLight ? "text-slate-400 hover:text-slate-700 hover:bg-slate-100" : "text-white/40 hover:text-white hover:bg-white/10"
+                  )}
+                  aria-label="Dismiss check-in"
+                >
+                  <X size={14} />
+                </button>
+
                 {/* Decorative Accent Glow */}
                 <div className="absolute top-0 left-1/2 -translate-x-1/2 w-28 h-28 bg-[#10B981]/5 rounded-full blur-xl pointer-events-none" />
                 
@@ -1143,7 +1396,7 @@ export default function Homepage() {
                 onClick={handleDailyClaim}
                 disabled={claimStatus !== 'idle'}
                 className={cn(
-                  "px-8 py-3 rounded-xl text-[10px] font-black uppercase tracking-[0.25em] text-white shadow-lg transition-all italic duration-200 cursor-pointer w-auto min-w-[150px] text-center",
+                  "px-8 py-3 rounded-xl text-[10px] font-black uppercase tracking-[0.25em] text-white shadow-lg transition-all italic duration-200 cursor-pointer w-auto min-w-[150px] text-center touch-manipulation",
                   claimStatus === 'idle' && "bg-gradient-to-r from-[#10B981] to-[#059669] hover:brightness-110 active:scale-95 shadow-[0_8px_20px_rgba(16,185,129,0.2)]",
                   claimStatus === 'claiming' && (isLight ? "bg-slate-200 text-slate-500 cursor-wait" : "bg-[#1F1D2B]/50 border border-white/5 opacity-80 cursor-wait"),
                   claimStatus === 'claimed' && "bg-emerald-500/25 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300 shadow-[0_4px_15px_rgba(16,185,129,0.15)] italic font-black uppercase"
@@ -1281,8 +1534,8 @@ export default function Homepage() {
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className="absolute inset-0 bg-black/60 backdrop-blur-[2px]"
-                // Backdrop clicks don't close so they must proceed or skip explicitly
+                onClick={handleDismissCompound}
+                className="absolute inset-0 bg-black/60 backdrop-blur-[2px] cursor-pointer"
               />
               
               {/* Flex column container keeping Card at top and buttons below, matching Daily Reward layout */}
@@ -1303,6 +1556,19 @@ export default function Homepage() {
                       : "bg-[#050608]/80 border border-white/10 hover:border-white/20 backdrop-blur-md shadow-[0_15px_35px_rgba(0,0,0,0.5)]"
                   )}
                 >
+                  {/* Close button */}
+                  <button
+                    type="button"
+                    onClick={handleDismissCompound}
+                    className={cn(
+                      "absolute top-3 right-3 p-1.5 rounded-full transition-colors cursor-pointer z-20",
+                      isLight ? "text-slate-400 hover:text-slate-700 hover:bg-slate-100" : "text-white/40 hover:text-white hover:bg-white/10"
+                    )}
+                    aria-label="Close"
+                  >
+                    <X size={14} />
+                  </button>
+
                   {/* Decorative Glow */}
                   <div className={cn(
                     "absolute top-0 left-1/2 -translate-x-1/2 w-28 h-28 rounded-full blur-xl pointer-events-none",
@@ -1388,7 +1654,7 @@ export default function Homepage() {
                             onClick={() => selectCompoundingDuration(days)}
                             disabled={isCompounding}
                             className={cn(
-                              "w-full flex items-center justify-between p-3 rounded-xl transition-all duration-200 group text-left cursor-pointer active:scale-[0.99] select-none",
+                              "w-full flex items-center justify-between p-3 rounded-xl transition-all duration-200 group text-left cursor-pointer active:scale-[0.99] select-none touch-manipulation",
                               isLight 
                                 ? "bg-slate-50 hover:bg-slate-100/80 border border-slate-200 hover:border-emerald-500/40"
                                 : "bg-white/[0.015] hover:bg-white/[0.04] border border-white/5 hover:border-[#10B981]/30"
@@ -1457,19 +1723,16 @@ export default function Homepage() {
                     </>
                   ) : isAutoCompoundActive ? (
                     <button
-                      onClick={() => closePopup('compound-profits')}
-                      className="w-full py-3 bg-gradient-to-r from-[#10B981] to-[#059669] hover:brightness-110 active:scale-95 shadow-[0_8px_20px_rgba(16,185,129,0.2)] text-white rounded-xl text-[10px] font-black uppercase tracking-[0.25em] transition-all duration-200 cursor-pointer italic text-center shadow-lg"
+                      onClick={() => handleDismissCompound()}
+                      className="w-full py-3 bg-gradient-to-r from-[#10B981] to-[#059669] hover:brightness-110 active:scale-95 shadow-[0_8px_20px_rgba(16,185,129,0.2)] text-white rounded-xl text-[10px] font-black uppercase tracking-[0.25em] transition-all duration-200 cursor-pointer italic text-center shadow-lg touch-manipulation"
                     >
                       Got It
                     </button>
                   ) : showDurationSelector ? (
                     <button
-                      onClick={() => {
-                        closePopup('compound-profits');
-                        setShowDurationSelector(false);
-                      }}
+                      onClick={handleDismissCompound}
                       className={cn(
-                        "w-full py-3 rounded-xl text-[10px] font-black uppercase tracking-[0.25em] transition-all duration-200 cursor-pointer italic text-center",
+                        "w-full py-3 rounded-xl text-[10px] font-black uppercase tracking-[0.25em] transition-all duration-200 cursor-pointer italic text-center touch-manipulation",
                         isLight ? "bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200" : "bg-white/5 hover:bg-white/10 border border-white/10 text-white"
                       )}
                     >
@@ -1480,7 +1743,7 @@ export default function Homepage() {
                       <button
                         onClick={handleCancelClick}
                         className={cn(
-                          "flex-1 py-3 rounded-xl text-[10px] font-black uppercase tracking-[0.25em] transition-all duration-200 cursor-pointer italic text-center",
+                          "flex-1 py-3 rounded-xl text-[10px] font-black uppercase tracking-[0.25em] transition-all duration-200 cursor-pointer italic text-center touch-manipulation",
                           isLight ? "bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200" : "bg-white/5 hover:bg-white/10 border border-white/10 text-white"
                         )}
                       >
@@ -1490,13 +1753,13 @@ export default function Homepage() {
                         onClick={handleCompoundClick}
                         disabled={isCompounding}
                         className={cn(
-                          "flex-1 py-3 rounded-xl text-[10px] font-black uppercase tracking-[0.25em] transition-all duration-200 cursor-pointer italic text-center shadow-lg",
+                          "flex-1 py-3 rounded-xl text-[10px] font-black uppercase tracking-[0.25em] transition-all duration-200 cursor-pointer italic text-center shadow-lg touch-manipulation",
                           isCompounding
                             ? (isLight ? "bg-slate-200 border border-slate-300 text-slate-500 cursor-wait" : "bg-[#1F1D2B]/50 border border-white/5 opacity-80 cursor-wait text-gray-400")
                             : "bg-gradient-to-r from-[#10B981] to-[#059669] hover:brightness-110 active:scale-95 shadow-[0_8px_20px_rgba(16,185,129,0.2)] text-white"
                         )}
                       >
-                        {isCompounding ? "Signing..." : "Accept"}
+                        {isCompounding ? "Signing..." : "Compound"}
                       </button>
                     </>
                   )}

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { motion } from 'motion/react';
 import { 
   TrendingUp, 
@@ -46,7 +46,7 @@ const ROBOT_IMAGES: Record<string, string> = {
   'AI 3.0': 'https://i.imgur.com/dZqi2MZ.png',
 };
 
-const DashboardCard = React.memo(({ icon: Icon, label, value, subtext, color, highlight, action }: { icon: any, label: string, value: string, subtext?: string, color: string, highlight?: boolean, action?: React.ReactNode }) => {
+const DashboardCard = React.memo(({ icon: Icon, label, value, subtext, color, highlight, action, controls }: { icon: any, label: string, value: string, subtext?: string, color: string, highlight?: boolean, action?: React.ReactNode, controls?: React.ReactNode }) => {
   const [isLight, setIsLight] = useState(() => document.documentElement.classList.contains('light'));
   useEffect(() => {
     const observer = new MutationObserver(() => {
@@ -62,7 +62,9 @@ const DashboardCard = React.memo(({ icon: Icon, label, value, subtext, color, hi
     <div 
       style={{ willChange: 'transform' }}
       className={cn(
-        "p-4 lg:p-6 rounded-2xl lg:rounded-[32px] border transition-all duration-500 relative overflow-hidden group flex flex-col justify-between h-full min-h-[110px] lg:min-h-0",
+        isBalanceCard
+          ? "px-4 py-3 lg:px-5 lg:py-3.5 rounded-2xl lg:rounded-[32px] border transition-all duration-500 relative overflow-hidden group flex flex-col justify-between h-full min-h-[96px] lg:min-h-0"
+          : "p-4 lg:p-6 rounded-2xl lg:rounded-[32px] border transition-all duration-500 relative overflow-hidden group flex flex-col justify-between h-full min-h-[110px] lg:min-h-0",
         highlight 
           ? (isLight 
               ? "bg-white border-emerald-500/40 text-slate-900 shadow-sm" 
@@ -72,16 +74,19 @@ const DashboardCard = React.memo(({ icon: Icon, label, value, subtext, color, hi
               : "bg-[#11141b] border-white/5 text-white hover:border-white/10 shadow-[0_10px_30px_rgba(0,0,0,0.3)]")
       )}
     >
-      <div className="flex justify-between items-start">
+      <div className="flex justify-between items-start gap-2">
         <div className={cn(
-          "p-2 lg:p-3 rounded-lg lg:rounded-2xl shadow-inner", 
+          "p-2 lg:p-2.5 rounded-lg lg:rounded-2xl shadow-inner shrink-0", 
           highlight 
             ? (isLight ? "bg-emerald-50 text-emerald-600 border border-emerald-100" : "bg-white/20") 
             : (isLight ? "bg-slate-100/80 border border-slate-200/50 text-slate-700" : "bg-white/5 " + color)
         )}>
           <Icon size={16} className="lg:w-5 lg:h-5" />
         </div>
-        {action}
+        <div className="flex items-center gap-1.5 ml-auto">
+          {controls}
+          {action}
+        </div>
       </div>
       <div className="overflow-hidden">
         <p className={cn(
@@ -164,6 +169,120 @@ export default function Dashboard() {
   const [showActiveModal, setShowActiveModal] = useState(false);
   const [showInactiveModal, setShowInactiveModal] = useState(false);
   const [isActivating, setIsActivating] = useState<string | null>(null);
+
+  const isAutoCompound = !!(
+    profile?.auto_compound_enabled &&
+    profile?.auto_compound_end_date &&
+    new Date(profile.auto_compound_end_date).getTime() > new Date().getTime()
+  );
+
+  const [showDurationModal, setShowDurationModal] = useState(false);
+  const [isCompounding, setIsCompounding] = useState(false);
+  const isCompoundingRef = useRef(false);
+  const isTogglingAutoCompoundRef = useRef(false);
+
+  const handleToggleAutoCompound = async (e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    if (!user || isTogglingAutoCompoundRef.current) return;
+    isTogglingAutoCompoundRef.current = true;
+    const willEnable = !isAutoCompound;
+    try {
+      const userRef = doc(db, 'users', user.uid);
+      if (willEnable) {
+        const now = new Date();
+        const duration = profile?.auto_compound_duration || 30;
+        const endDate = new Date(now.getTime() + duration * 86400000);
+        await updateDoc(userRef, {
+          auto_compound_enabled: true,
+          auto_compound_duration: duration,
+          auto_compound_start_date: now.toISOString(),
+          auto_compound_end_date: endDate.toISOString(),
+          auto_compound_expired: false
+        });
+      } else {
+        await updateDoc(userRef, {
+          auto_compound_enabled: false,
+          auto_compound_end_date: null
+        });
+      }
+    } catch (err) {
+      toast.error("Failed to update Auto-Compound setting.");
+    } finally {
+      isTogglingAutoCompoundRef.current = false;
+    }
+  };
+
+  const selectDuration = async (days: number) => {
+    if (!user || isCompoundingRef.current) return;
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      toast.error("Network unavailable. Please reconnect and try again.");
+      setShowDurationModal(false);
+      return;
+    }
+    setShowDurationModal(false);
+    isCompoundingRef.current = true;
+    setIsCompounding(true);
+    const toastId = toast.loading(`Activating ${days}-day automated compounding schedule...`);
+    try {
+      const startDate = new Date();
+      const endDate = new Date(startDate.getTime() + days * 86400000);
+      const userRef = doc(db, 'users', user.uid);
+      await updateDoc(userRef, {
+        auto_compound_enabled: true,
+        auto_compound_duration: days,
+        auto_compound_start_date: startDate.toISOString(),
+        auto_compound_end_date: endDate.toISOString(),
+        auto_compound_expired: false
+      });
+      toast.success(`Automated compounding protocol (${days} days) active!`, { id: toastId });
+    } catch (err: any) {
+      toast.error(err.message || "Failed to activate compounding schedule.", { id: toastId });
+    } finally {
+      isCompoundingRef.current = false;
+      setIsCompounding(false);
+    }
+  };
+
+  const renderCompoundControls = () => (
+    <div className="flex items-center gap-1.5 shrink-0 select-none">
+      <button
+        type="button"
+        role="switch"
+        aria-checked={isAutoCompound}
+        title={isAutoCompound ? "Auto-Compound enabled" : "Auto-Compound disabled"}
+        onClick={handleToggleAutoCompound}
+        className={cn(
+          "relative inline-flex h-3.5 w-6 sm:h-4 sm:w-7 shrink-0 cursor-pointer items-center rounded-full border border-transparent transition-colors duration-200 ease-in-out focus:outline-none select-none",
+          isAutoCompound 
+            ? "bg-[#009e42] shadow-[0_0_8px_rgba(0,158,66,0.4)]" 
+            : (isLight ? "bg-slate-300 hover:bg-slate-400" : "bg-white/20 hover:bg-white/30")
+        )}
+      >
+        <span
+          aria-hidden="true"
+          className={cn(
+            "pointer-events-none inline-block h-2.5 w-2.5 sm:h-3 sm:w-3 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out",
+            isAutoCompound ? "translate-x-2.5 sm:translate-x-3" : "translate-x-0.5"
+          )}
+        />
+      </button>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          setShowDurationModal(true);
+        }}
+        className={cn(
+          "px-2 py-0.5 rounded-full text-[8px] sm:text-[9px] font-black uppercase tracking-wider transition-all duration-200 cursor-pointer active:scale-95 border select-none shrink-0",
+          isLight 
+            ? "bg-slate-100 hover:bg-emerald-50 text-slate-700 hover:text-[#009e42] border-slate-200 hover:border-[#009e42]/40 shadow-sm" 
+            : "bg-white/5 hover:bg-white/10 text-white/80 hover:text-white border-white/10 hover:border-[#009e42]/40"
+        )}
+      >
+        Compound
+      </button>
+    </div>
+  );
 
   const [referralStats, setReferralStats] = useState({ total: 0, active: 0 });
 
@@ -675,6 +794,7 @@ export default function Dashboard() {
           value={formatCurrency(profile?.available_balance || 0)} 
           color="text-secondary" 
           highlight 
+          controls={renderCompoundControls()}
         />
         <DashboardCard 
           icon={TrendingUp} 
@@ -694,6 +814,7 @@ export default function Dashboard() {
           label="Total Assets" 
           value={formatCurrency(profile?.total_invested || 0)} 
           color="text-orange-400" 
+          controls={renderCompoundControls()}
           action={
             profile && !['AI 1.8', 'AI 2.0', 'AI 2.5', 'AI 3.0'].includes(profile.active_robot || '') && investments.some(i => i.status === 'active') && (profile.total_invested || 0) > 0 ? (
               <>
@@ -892,6 +1013,98 @@ export default function Dashboard() {
            </button>
         </div>
       </div>
+
+      <AnimatePresence>
+        {showDurationModal && (
+          <div className="fixed inset-0 z-[1000] flex flex-col items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowDurationModal(false)}
+              className="absolute inset-0 bg-black/60 backdrop-blur-[2px] cursor-pointer"
+            />
+            <div className="flex flex-col items-center gap-5 max-w-[340px] w-full relative z-10 select-none">
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.95, y: 15 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 15 }}
+                transition={{ type: 'spring', duration: 0.4 }}
+                className={cn(
+                  "w-full rounded-2xl px-6 py-10 text-center relative overflow-hidden transition-all duration-300",
+                  isLight 
+                    ? "bg-white border border-slate-200 shadow-[0_15px_35px_rgba(0,0,0,0.08)]"
+                    : "bg-[#050608]/80 border border-white/10 hover:border-white/20 backdrop-blur-md shadow-[0_15px_35px_rgba(0,0,0,0.5)]"
+                )}
+              >
+                <button
+                  type="button"
+                  onClick={() => setShowDurationModal(false)}
+                  className={cn(
+                    "absolute top-3 right-3 p-1.5 rounded-full transition-colors cursor-pointer z-20",
+                    isLight ? "text-slate-400 hover:text-slate-700 hover:bg-slate-100" : "text-white/40 hover:text-white hover:bg-white/10"
+                  )}
+                  aria-label="Close"
+                >
+                  <X size={14} />
+                </button>
+
+                <div className={cn(
+                  "mb-4 inline-flex w-12 h-12 rounded-xl items-center justify-center text-purple-500 dark:text-purple-400 shadow-inner",
+                  isLight ? "bg-purple-50 border border-purple-200" : "bg-purple-500/10 border border-purple-500/20"
+                )}>
+                  <Clock size={22} className="animate-pulse" />
+                </div>
+                
+                <h3 className={cn("text-sm font-black italic uppercase tracking-wider mb-2 font-sans", isLight ? "text-slate-900" : "text-white")}>
+                  Select Duration
+                </h3>
+                
+                <p className={cn("text-[10px] leading-relaxed max-w-[240px] mx-auto mb-5 font-sans", isLight ? "text-slate-600" : "text-[#8E8A9E]")}>
+                  Choose a duration for automatic daily reinvesting of your ROI earnings.
+                </p>
+
+                <div className="space-y-2 w-full">
+                  {[15, 30, 90, 180, 365].map((days) => (
+                    <button
+                      key={days}
+                      onClick={() => selectDuration(days)}
+                      disabled={isCompounding}
+                      className={cn(
+                        "w-full flex items-center justify-between p-3 rounded-xl transition-all duration-200 group text-left cursor-pointer active:scale-[0.99] select-none touch-manipulation",
+                        isLight 
+                          ? "bg-slate-50 hover:bg-slate-100/80 border border-slate-200 hover:border-emerald-500/40"
+                          : "bg-white/[0.015] hover:bg-white/[0.04] border border-white/5 hover:border-[#10B981]/30"
+                      )}
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-1.5 h-1.5 rounded-full bg-[#10B981] opacity-60 group-hover:opacity-100 transition-opacity" />
+                        <div>
+                          <span className={cn("text-xs font-black", isLight ? "text-slate-900" : "text-white")}>{days} Days</span>
+                          <p className={cn("text-[8px] mt-0.5 font-sans", isLight ? "text-slate-400" : "text-white/35")}>Continuous reinvesting protocol</p>
+                        </div>
+                      </div>
+                      <span className="text-[9px] font-black text-emerald-500 dark:text-emerald-400 group-hover:translate-x-0.5 transition-transform">
+                        SET &rarr;
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </motion.div>
+
+              <button
+                onClick={() => setShowDurationModal(false)}
+                className={cn(
+                  "w-full py-3 rounded-xl text-[10px] font-black uppercase tracking-[0.25em] transition-all duration-200 cursor-pointer italic text-center touch-manipulation",
+                  isLight ? "bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200" : "bg-white/5 hover:bg-white/10 border border-white/10 text-white"
+                )}
+              >
+                Exit
+              </button>
+            </div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

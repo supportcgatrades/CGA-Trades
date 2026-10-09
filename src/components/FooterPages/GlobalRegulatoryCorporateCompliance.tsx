@@ -113,7 +113,7 @@ export default function GlobalRegulatoryCorporateCompliance() {
   ];
 
   return (
-    <div className="min-h-screen bg-[#050608] pt-24 pb-20 px-4 md:px-6 relative overflow-hidden">
+    <div className="min-h-screen bg-slate-50 dark:bg-[#050608] text-slate-900 dark:text-white pt-24 pb-20 px-4 md:px-6 relative overflow-hidden">
       {/* Ambient background decorative elements */}
       <div className="absolute top-0 left-1/4 w-[300px] h-[300px] bg-primary/5 rounded-full blur-[120px] pointer-events-none" />
       <div className="absolute bottom-1/4 right-1/4 w-[250px] h-[250px] bg-secondary/5 rounded-full blur-[100px] pointer-events-none" />
@@ -121,7 +121,7 @@ export default function GlobalRegulatoryCorporateCompliance() {
       <div className="max-w-5xl mx-auto space-y-12 relative z-10">
         
         {/* HEADER SECTION */}
-        <header className="flex flex-row items-center gap-4 sm:gap-8 pb-8 border-b border-white/5 text-left bg-transparent">
+        <header className="flex flex-row items-center gap-4 sm:gap-8 pb-8 border-b border-slate-200 dark:border-white/5 text-left bg-transparent">
           {/* Left Side: Spinning Globe */}
           <div className="flex-shrink-0 flex items-center justify-center">
             <div className="relative w-16 h-16 sm:w-28 sm:h-28 flex items-center justify-center">
@@ -197,7 +197,7 @@ export default function GlobalRegulatoryCorporateCompliance() {
             <motion.h1 
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
-              className="text-lg sm:text-3xl font-black italic font-serif text-white uppercase tracking-tight leading-tight"
+              className="text-lg sm:text-3xl font-black italic font-serif text-slate-900 dark:text-white uppercase tracking-tight leading-tight"
             >
               Global Regulatory <span className="text-[#009e42]">&</span> Corporate Compliance
             </motion.h1>
@@ -205,23 +205,23 @@ export default function GlobalRegulatoryCorporateCompliance() {
         </header>
 
         {/* INTRODUCTION BLOCK */}
-        <div className="p-6 sm:p-10 rounded-3xl bg-white/[0.02] border border-white/5 space-y-4 text-left">
-          <p className="text-sm text-gray-300 leading-relaxed font-medium">
+        <div className="p-6 sm:p-10 rounded-3xl bg-white dark:bg-white/[0.02] border border-slate-200/80 dark:border-white/5 shadow-sm dark:shadow-none space-y-4 text-left">
+          <p className="text-sm text-slate-600 dark:text-gray-300 leading-relaxed font-medium">
             At Capital Growth Alliance (CGA Trades), compliance, transparency, and corporate governance are fundamental to our global operations. We maintain corporate registrations and regulatory compliance in multiple international jurisdictions in accordance with the applicable laws and regulatory frameworks governing our business activities.
           </p>
-          <p className="text-sm text-gray-300 leading-relaxed font-medium">
+          <p className="text-sm text-slate-600 dark:text-gray-300 leading-relaxed font-medium">
             Our compliance program is designed to uphold internationally recognized standards for corporate governance, anti-money laundering (AML), know-your-customer (KYC) procedures, financial integrity, risk management, data protection, and ethical business conduct.
           </p>
-          <p className="text-sm text-gray-400 leading-relaxed font-bold">
+          <p className="text-sm text-slate-500 dark:text-gray-400 leading-relaxed font-bold">
             The information below summarizes our international corporate presence. Supporting registration certificates, licenses, and compliance documentation are available upon request where appropriate and subject to applicable legal and confidentiality requirements.
           </p>
         </div>
 
         {/* JURISDICTIONS DIRECTORY */}
         <div className="space-y-8">
-          <div className="flex items-center gap-3 border-b border-white/5 pb-4">
+          <div className="flex items-center gap-3 border-b border-slate-200 dark:border-white/5 pb-4">
             <Globe className="text-[#009e42]" size={20} />
-            <h2 className="text-xl font-bold uppercase tracking-wider text-white italic font-serif">International Corporate Registry</h2>
+            <h2 className="text-xl font-bold uppercase tracking-wider text-slate-900 dark:text-white italic font-serif">International Corporate Registry</h2>
           </div>
 
           <div className="grid grid-cols-1 gap-6">
@@ -231,34 +231,34 @@ export default function GlobalRegulatoryCorporateCompliance() {
                 initial={{ opacity: 0, y: 15 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: idx * 0.05 }}
-                className="p-6 sm:p-8 rounded-3xl bg-gradient-to-b from-[#0c0f16] to-[#040608] border border-white/5 hover:border-[#009e42]/20 transition-all duration-300 space-y-6 text-left shadow-xl"
+                className="p-6 sm:p-8 rounded-3xl bg-white dark:bg-gradient-to-b dark:from-[#0c0f16] dark:to-[#040608] border border-slate-200/80 dark:border-white/5 hover:border-[#009e42]/40 dark:hover:border-[#009e42]/20 transition-all duration-300 space-y-6 text-left shadow-sm dark:shadow-xl"
               >
                 {/* Jurisdiction Title Banner */}
                 <div className="flex items-center gap-3">
                   <span className="text-2xl sm:text-3xl select-none" role="img" aria-label={item.country}>{item.flag}</span>
                   <div>
-                    <h3 className="text-lg sm:text-xl font-black text-white uppercase tracking-tight">{item.country}</h3>
+                    <h3 className="text-lg sm:text-xl font-black text-slate-900 dark:text-white uppercase tracking-tight">{item.country}</h3>
                     <span className="text-[9px] font-mono tracking-widest text-[#009e42] uppercase font-bold">CORPORATE REGISTRATION</span>
                   </div>
                 </div>
 
                 {/* Registry Details Table/List */}
-                <div className="overflow-x-auto rounded-xl border border-white/5 bg-black/30">
+                <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-white/5 bg-slate-50/80 dark:bg-black/30">
                   <table className="w-full text-left text-xs border-collapse min-w-[500px] sm:min-w-0">
                     <thead>
-                      <tr className="border-b border-white/5 bg-white/[0.02]">
+                      <tr className="border-b border-slate-200 dark:border-white/5 bg-slate-100/60 dark:bg-white/[0.02]">
                         <th className="px-4 py-3 font-mono text-[10px] text-[#009e42] uppercase font-black tracking-widest w-1/2">Code / Regulatory Authority</th>
                         <th className="px-4 py-3 font-mono text-[10px] text-[#009e42] uppercase font-black tracking-widest w-1/2">Function / Scope</th>
                       </tr>
                     </thead>
                     <tbody>
                       {item.registrations.map((reg, regIdx) => (
-                        <tr key={regIdx} className="border-b border-white/5 last:border-0 hover:bg-white/[0.01] transition-colors">
-                          <td className="px-4 py-3 font-bold text-white flex items-center gap-2">
+                        <tr key={regIdx} className="border-b border-slate-200 dark:border-white/5 last:border-0 hover:bg-slate-100/40 dark:hover:bg-white/[0.01] transition-colors">
+                          <td className="px-4 py-3 font-bold text-slate-800 dark:text-white flex items-center gap-2">
                             <div className="w-1.5 h-1.5 rounded-full bg-[#009e42]" />
                             {reg.authority}
                           </td>
-                          <td className="px-4 py-3 text-gray-400 font-medium leading-relaxed">{reg.function}</td>
+                          <td className="px-4 py-3 text-slate-600 dark:text-gray-400 font-medium leading-relaxed">{reg.function}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -266,7 +266,7 @@ export default function GlobalRegulatoryCorporateCompliance() {
                 </div>
 
                 {/* Intro Description */}
-                <p className="text-xs sm:text-sm text-gray-400 leading-relaxed font-medium">
+                <p className="text-xs sm:text-sm text-slate-600 dark:text-gray-400 leading-relaxed font-medium">
                   {item.intro}
                 </p>
               </motion.div>
@@ -276,35 +276,35 @@ export default function GlobalRegulatoryCorporateCompliance() {
 
         {/* GLOBAL COMPLIANCE FRAMEWORK */}
         <section className="space-y-6 text-left">
-          <div className="flex items-center gap-3 border-b border-white/5 pb-4">
+          <div className="flex items-center gap-3 border-b border-slate-200 dark:border-white/5 pb-4">
             <Scale className="text-[#009e42]" size={20} />
-            <h2 className="text-xl font-bold uppercase tracking-wider text-white italic font-serif">Global Compliance Framework</h2>
+            <h2 className="text-xl font-bold uppercase tracking-wider text-slate-900 dark:text-white italic font-serif">Global Compliance Framework</h2>
           </div>
 
-          <div className="p-6 sm:p-10 rounded-[32px] bg-gradient-to-br from-[#0c0f16]/90 to-[#040608]/95 border border-white/5 space-y-6">
-            <p className="text-xs sm:text-sm text-gray-400 font-bold">
+          <div className="p-6 sm:p-10 rounded-[32px] bg-white dark:bg-gradient-to-br dark:from-[#0c0f16]/90 dark:to-[#040608]/95 border border-slate-200/80 dark:border-white/5 shadow-sm dark:shadow-none space-y-6">
+            <p className="text-xs sm:text-sm text-slate-600 dark:text-gray-400 font-bold">
               Across our international operations, Capital Growth Alliance maintains internal policies and procedures that support:
             </p>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {compliancePillars.map((pillar, index) => (
-                <div key={index} className="flex items-center gap-3 p-3.5 rounded-2xl bg-white/[0.01] border border-white/5 hover:border-white/10 transition-colors">
+                <div key={index} className="flex items-center gap-3 p-3.5 rounded-2xl bg-slate-50 dark:bg-white/[0.01] border border-slate-200/60 dark:border-white/5 hover:border-slate-300 dark:hover:border-white/10 transition-colors">
                   <div className="w-7 h-7 rounded-lg bg-[#009e42]/10 border border-[#009e42]/20 flex items-center justify-center text-[#009e42] font-mono text-[10px] font-black">
                     {String(index + 1).padStart(2, '0')}
                   </div>
-                  <span className="text-xs sm:text-sm text-white font-black uppercase tracking-tight">{pillar}</span>
+                  <span className="text-xs sm:text-sm text-slate-800 dark:text-white font-black uppercase tracking-tight">{pillar}</span>
                 </div>
               ))}
             </div>
 
-            <p className="text-xs text-gray-500 leading-relaxed font-bold pt-4 border-t border-white/5">
+            <p className="text-xs text-slate-500 dark:text-gray-500 leading-relaxed font-bold pt-4 border-t border-slate-200 dark:border-white/5">
               These policies are intended to promote responsible corporate operations and support compliance with the laws and regulations applicable to our business activities in each jurisdiction where we operate.
             </p>
           </div>
         </section>
 
         {/* OUR COMMITMENT */}
-        <section className="p-8 sm:p-12 rounded-[40px] bg-gradient-to-br from-[#0c0f16]/95 to-[#040608]/98 border border-[#009e42]/20 text-center relative overflow-hidden shadow-2xl">
+        <section className="p-8 sm:p-12 rounded-[40px] bg-white dark:bg-gradient-to-br dark:from-[#0c0f16]/95 dark:to-[#040608]/98 border border-[#009e42]/30 dark:border-[#009e42]/20 text-center relative overflow-hidden shadow-lg dark:shadow-2xl">
           <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[350px] h-[350px] bg-[#009e42]/5 rounded-full blur-[100px] pointer-events-none" />
           
           <div className="relative z-10 max-w-2xl mx-auto space-y-6">
@@ -312,13 +312,13 @@ export default function GlobalRegulatoryCorporateCompliance() {
               <ShieldCheck className="text-[#009e42]" size={24} />
             </div>
             
-            <h2 className="text-2xl sm:text-3xl font-black italic font-serif text-white uppercase tracking-tight">Our Commitment</h2>
+            <h2 className="text-2xl sm:text-3xl font-black italic font-serif text-slate-900 dark:text-white uppercase tracking-tight">Our Commitment</h2>
             
-            <p className="text-xs sm:text-sm text-gray-300 leading-relaxed font-medium">
+            <p className="text-xs sm:text-sm text-slate-600 dark:text-gray-300 leading-relaxed font-medium">
               Capital Growth Alliance (CGA Trades) is committed to maintaining high standards of corporate responsibility, operational integrity, and regulatory compliance. We continually review our governance frameworks and internal controls to support sustainable international operations while respecting the legal and regulatory requirements of the jurisdictions in which we maintain a corporate presence.
             </p>
 
-            <p className="text-xs sm:text-sm text-gray-300 leading-relaxed font-bold italic border-t border-white/5 pt-6">
+            <p className="text-xs sm:text-sm text-slate-700 dark:text-gray-300 leading-relaxed font-bold italic border-t border-slate-200 dark:border-white/5 pt-6">
               "We believe that transparency, accountability, and responsible business practices are essential to earning and maintaining the confidence of our clients, partners, and stakeholders worldwide."
             </p>
           </div>

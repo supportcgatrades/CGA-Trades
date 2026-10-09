@@ -596,7 +596,7 @@ export default function Invest() {
           >
             {/* Slim Header Banner with Parallax Zoom and Overlay Content */}
             <div className="relative -mx-6 -mt-8 mb-8 h-[140px] sm:h-[180px] md:h-[220px] overflow-hidden bg-white dark:bg-[#050608] border-b border-slate-200/90 dark:border-white/5 select-none group/header">
-              {/* Light Mode: Crisp, vibrant background photo with premium Light Mode treatment */}
+              {/* Light Mode: Full natural vibrancy, depth, and contrast header photo */}
               <motion.div 
                 style={{ scale: headerScale, y: headerY, opacity: headerOpacity }}
                 className="dark:hidden absolute inset-0 w-full h-full"
@@ -607,13 +607,9 @@ export default function Invest() {
                   loading="eager"
                   fetchPriority="high"
                   decoding="async"
-                  className="w-full h-full object-cover select-none brightness-[0.96] contrast-[1.08] saturate-[1.08]"
+                  className="w-full h-full object-cover select-none"
                   referrerPolicy="no-referrer"
                 />
-                {/* Clean, premium Light Mode treatment: Soft atmospheric lighting that keeps image sharp while making text pop */}
-                <div className="absolute inset-0 bg-gradient-to-b from-white/30 via-white/10 to-white/65" />
-                <div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_75%_at_50%_50%,rgba(255,255,255,0.70)_0%,rgba(255,255,255,0.25)_65%,transparent_100%)]" />
-                <div className="absolute bottom-0 inset-x-0 h-6 bg-gradient-to-t from-slate-200/50 to-transparent" />
               </motion.div>
 
               {/* Dark Mode: Preserved original parallax background image and dark gradient overlay */}
@@ -641,10 +637,10 @@ export default function Invest() {
                   transition={{ duration: 0.6, ease: "easeOut" }}
                   className="space-y-1.5"
                 >
-                  <h1 className="text-xl sm:text-2xl md:text-4xl font-black uppercase tracking-[0.15em] text-slate-900 dark:text-white font-sans drop-shadow-[0_1px_2px_rgba(255,255,255,0.8)] dark:drop-shadow-[0_4px_12px_rgba(0,0,0,0.6)]">
-                    Investment <span className="text-[#009e42] drop-shadow-none">Plans</span>
+                  <h1 className="text-xl sm:text-2xl md:text-4xl font-black uppercase tracking-[0.15em] text-slate-900 dark:text-white font-sans drop-shadow-[0_1px_3px_rgba(255,255,255,0.9)] dark:drop-shadow-[0_4px_12px_rgba(0,0,0,0.6)]">
+                    Investment <span className="text-[#009e42]">Plans</span>
                   </h1>
-                  <p className="text-[10px] sm:text-xs md:text-sm text-slate-700 dark:text-white/60 font-semibold dark:font-medium tracking-wide max-w-xl mx-auto drop-shadow-[0_1px_2px_rgba(255,255,255,0.7)] dark:drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)]">
+                  <p className="text-[10px] sm:text-xs md:text-sm text-slate-900 dark:text-white/60 font-semibold dark:font-medium tracking-wide max-w-xl mx-auto drop-shadow-[0_1px_2px_rgba(255,255,255,0.85)] dark:drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)]">
                     Choose an investment plan that best suits you.
                   </p>
                 </motion.div>

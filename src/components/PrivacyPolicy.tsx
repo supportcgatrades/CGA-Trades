@@ -17,17 +17,17 @@ const PrivacyPolicy = () => {
   }, []);
 
   return (
-    <div className="min-h-screen bg-[#050608] text-white font-sans selection:bg-aura-lime/30">
+    <div className="min-h-screen bg-white dark:bg-[#050608] text-slate-900 dark:text-white font-sans selection:bg-aura-lime/30">
       {/* Header */}
       <header className={cn(
         "fixed top-0 inset-x-0 transition-all duration-500 z-[100] border-b backdrop-blur-md",
-        isScrolled ? "h-14 bg-aura-black/80 border-white/10" : "h-20 lg:h-24 bg-transparent border-transparent",
-        "border-white/5"
+        isScrolled ? "h-14 bg-white/90 dark:bg-aura-black/80 border-slate-200/80 dark:border-white/10" : "h-20 lg:h-24 bg-transparent border-transparent",
+        "border-slate-200/60 dark:border-white/5"
       )}>
         <div className="max-w-4xl mx-auto px-6 h-full flex items-center justify-between">
           <button 
             onClick={() => navigate(-1)}
-            className="flex items-center gap-2 text-aura-muted hover:text-white transition-all group"
+            className="flex items-center gap-2 text-slate-600 dark:text-aura-muted hover:text-slate-900 dark:hover:text-white transition-all group"
           >
             <ArrowLeft size={18} className="group-hover:-translate-x-1 transition-transform" />
             <span className="text-[10px] font-black uppercase tracking-widest">Back</span>
@@ -36,18 +36,18 @@ const PrivacyPolicy = () => {
             <div className="w-8 h-8 bg-primary/10 border border-primary/20 rounded-lg flex items-center justify-center">
               <Lock size={16} className="text-primary" />
             </div>
-            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-white">Security Center</span>
+            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-900 dark:text-white">Security Center</span>
           </div>
         </div>
       </header>
 
       {/* Hero */}
-      <div className="py-20 border-b border-white/5 bg-gradient-to-b from-[#080a0f] to-[#050608]">
+      <div className="pt-28 pb-16 md:pt-32 md:pb-20 border-b border-slate-200/80 dark:border-white/5 bg-slate-50 dark:bg-gradient-to-b dark:from-[#080a0f] dark:to-[#050608]">
         <div className="max-w-4xl mx-auto px-6">
-          <h1 className="text-4xl md:text-6xl font-black text-white italic font-serif leading-tight mb-6">
+          <h1 className="text-4xl md:text-6xl font-black text-slate-900 dark:text-white italic font-serif leading-tight mb-6">
             Privacy & <span className="text-aura-lime">Security</span>
           </h1>
-          <p className="text-aura-muted text-lg max-w-2xl leading-relaxed">
+          <p className="text-slate-600 dark:text-aura-muted text-lg max-w-2xl leading-relaxed font-medium">
             Protecting your neural data and financial assets is our primary mandate. This protocol outlines how Capital Growth Alliance handles and secures your information.
           </p>
         </div>
@@ -61,19 +61,19 @@ const PrivacyPolicy = () => {
               <Eye size={20} />
               <h2 className="text-xs font-black uppercase tracking-[0.3em]">Visibility</h2>
             </div>
-            <h3 className="text-xl font-bold mb-4 tracking-tight">Transparency Commitment</h3>
-            <p className="text-aura-muted text-sm leading-relaxed">
+            <h3 className="text-xl font-bold mb-4 tracking-tight text-slate-900 dark:text-white">Transparency Commitment</h3>
+            <p className="text-slate-600 dark:text-aura-muted text-sm leading-relaxed">
               We operate with full transparency regarding data collection. Your assets are never pooled with operational funds.
             </p>
           </div>
           <div className="md:col-span-2 space-y-6">
-            <div className="p-6 bg-white/5 border border-white/10 rounded-2xl space-y-4">
+            <div className="p-6 bg-slate-50 dark:bg-white/5 border border-slate-200/80 dark:border-white/10 rounded-2xl space-y-4">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-black text-aura-muted uppercase tracking-widest">Protocol Alpha</span>
-                <Globe size={14} className="text-aura-muted" />
+                <span className="text-xs font-black text-slate-500 dark:text-aura-muted uppercase tracking-widest">Protocol Alpha</span>
+                <Globe size={14} className="text-slate-500 dark:text-aura-muted" />
               </div>
-              <h4 className="text-lg font-bold">Data Collection & Storage</h4>
-              <p className="text-aura-muted text-sm leading-relaxed">
+              <h4 className="text-lg font-bold text-slate-900 dark:text-white">Data Collection & Storage</h4>
+              <p className="text-slate-600 dark:text-aura-muted text-sm leading-relaxed">
                 We collect essential information to facilitate secure transactions and account management. This includes identity verification documents, device signatures, and transaction history. All data is encrypted using military-grade AES-256 protocols before storage.
               </p>
             </div>
@@ -87,14 +87,14 @@ const PrivacyPolicy = () => {
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
             <div className="space-y-4">
-              <h3 className="text-lg font-bold">Two-Factor Authentication</h3>
-              <p className="text-aura-muted text-sm leading-relaxed">
+              <h3 className="text-lg font-bold text-slate-900 dark:text-white">Two-Factor Authentication</h3>
+              <p className="text-slate-600 dark:text-aura-muted text-sm leading-relaxed">
                 Access to significant account mutations requires mandatory multi-factor authentication. We support hardware security keys (FIDO2) and biometric signatures to prevent unauthorized entry.
               </p>
             </div>
             <div className="space-y-4">
-              <h3 className="text-lg font-bold">Session Integrity</h3>
-              <p className="text-aura-muted text-sm leading-relaxed">
+              <h3 className="text-lg font-bold text-slate-900 dark:text-white">Session Integrity</h3>
+              <p className="text-slate-600 dark:text-aura-muted text-sm leading-relaxed">
                 Automated session termination occurs after 15 minutes of inactivity. Neural link signatures are monitored for pattern anomalies, triggering immediate lock-down if suspicious activity is detected.
               </p>
             </div>
@@ -107,21 +107,21 @@ const PrivacyPolicy = () => {
             <h2 className="text-lg font-black uppercase tracking-[0.3em]">Zero-Knowledge Policy</h2>
           </div>
           <div className="space-y-6">
-            <p className="text-white/80 leading-relaxed">
+            <p className="text-slate-700 dark:text-white/80 leading-relaxed font-medium">
               Capital Growth Alliance adheres to a strict zero-knowledge architecture for sensitive financial keys. We do not store your private keys or unencrypted seed phrases on our servers. You remain the sole custodian of your digital asset signatures.
             </p>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-4">
               <div className="text-center p-4">
-                <p className="text-2xl font-black text-white italic mb-1">99.9%</p>
-                <p className="text-[10px] text-aura-muted uppercase tracking-widest">Uptime Record</p>
+                <p className="text-2xl font-black text-slate-900 dark:text-white italic mb-1">99.9%</p>
+                <p className="text-[10px] text-slate-500 dark:text-aura-muted uppercase tracking-widest">Uptime Record</p>
               </div>
-              <div className="text-center p-4 border-x border-white/10">
-                <p className="text-2xl font-black text-white italic mb-1">256-Bit</p>
-                <p className="text-[10px] text-aura-muted uppercase tracking-widest">Encryption</p>
+              <div className="text-center p-4 border-x border-slate-200 dark:border-white/10">
+                <p className="text-2xl font-black text-slate-900 dark:text-white italic mb-1">256-Bit</p>
+                <p className="text-[10px] text-slate-500 dark:text-aura-muted uppercase tracking-widest">Encryption</p>
               </div>
               <div className="text-center p-4">
-                <p className="text-2xl font-black text-white italic mb-1">2FA</p>
-                <p className="text-[10px] text-aura-muted uppercase tracking-widest">Mandatory</p>
+                <p className="text-2xl font-black text-slate-900 dark:text-white italic mb-1">2FA</p>
+                <p className="text-[10px] text-slate-500 dark:text-aura-muted uppercase tracking-widest">Mandatory</p>
               </div>
             </div>
           </div>
@@ -129,14 +129,14 @@ const PrivacyPolicy = () => {
 
         <section className="space-y-8">
           <div className="space-y-4">
-            <h3 className="text-xl font-bold text-white tracking-tight">Third-Party Disclosure</h3>
-            <p className="text-aura-muted leading-relaxed text-sm">
+            <h3 className="text-xl font-bold text-slate-900 dark:text-white tracking-tight">Third-Party Disclosure</h3>
+            <p className="text-slate-600 dark:text-aura-muted leading-relaxed text-sm">
               We do not sell, trade, or otherwise transfer your personally identifiable information to outside parties. This does not include trusted third parties who assist us in operating our platform, conducting our business, or serving our users, provided those parties agree to keep this information confidential.
             </p>
           </div>
           <div className="space-y-4">
-            <h3 className="text-xl font-bold text-white tracking-tight">Financial Secrecy</h3>
-            <p className="text-aura-muted leading-relaxed text-sm">
+            <h3 className="text-xl font-bold text-slate-900 dark:text-white tracking-tight">Financial Secrecy</h3>
+            <p className="text-slate-600 dark:text-aura-muted leading-relaxed text-sm">
               We comply with international banking secrecy guidelines where applicable. Information is only disclosed to legal authorities when compelled by a valid subpoena or court order in a jurisdiction where Capital Growth Alliance operates.
             </p>
           </div>
