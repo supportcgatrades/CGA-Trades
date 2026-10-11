@@ -865,8 +865,12 @@ export default function Rewards() {
 
   // DAILY CHECK IN TRIGGER
   const handleDailyCheckIn = async () => {
-    const authUser = auth.currentUser;
-    if (!authUser || isSubmitting) return;
+    if (isSubmitting) return;
+    if (!auth.currentUser && auth.authStateReady) {
+      await auth.authStateReady();
+    }
+    const authUser = auth.currentUser || user;
+    if (!authUser || !authUser.uid) return;
     if (!isDailyClaimable) {
       toast.error("You are currently on a 24-hour claim cycle lock.");
       return;
@@ -887,7 +891,7 @@ export default function Rewards() {
         const existingWithdrawMethods = userData.withdraw_methods || {};
         const currentStreak = existingWithdrawMethods.current_streak || 0;
         const lastCheckIn = existingWithdrawMethods.last_check_in || '';
-        const claimedDatesList = existingWithdrawMethods.claimed_dates || [];
+        const claimedDatesList = existingWithdrawMethods.claimed_dates || userData.claimed_dates || [];
         const claimedDatesSet = new Set(claimedDatesList);
 
         if (claimedDatesSet.has(todayStr)) {
@@ -911,10 +915,11 @@ export default function Rewards() {
         }
 
         const newClaimedDates = [...claimedDatesList, todayStr];
-        const newPointsBalance = (existingWithdrawMethods.points_balance || 0) + 1;
+        const newPointsBalance = (existingWithdrawMethods.points_balance || userData.points_balance || 0) + 1;
         const newTotalClaimedDays = (existingWithdrawMethods.total_claimed_days || 0) + 1;
 
         transaction.update(userRef, {
+          points_balance: newPointsBalance,
           withdraw_methods: {
             ...existingWithdrawMethods,
             points_balance: newPointsBalance,

@@ -33,31 +33,16 @@ export function WhatsAppIcon({ className = "w-full h-full" }: { className?: stri
 export default function WhatsAppCommunitySlider() {
   const whatsappLink = CGA_WHATSAPP_SUPPORT_URL;
 
-  const handleClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
-    // Ensure smooth, immediate activation on all devices
-    if (!whatsappLink) return;
-    try {
-      const win = window.open(whatsappLink, '_blank', 'noopener,noreferrer');
-      if (win) {
-        e.preventDefault();
-      }
-    } catch {
-      // Fallback to normal anchor navigation if window.open is restricted
-    }
-  };
-
   return (
-    <div className="relative select-none flex justify-end pointer-events-auto">
+    <div className="relative select-none flex justify-end pointer-events-none">
       {/* Floating WhatsApp Button: Fixed, stable anchor hitbox with animated visual inner icon */}
       <a
         href={whatsappLink}
         target="_blank"
         rel="noopener noreferrer"
-        onClick={handleClick}
         className="w-12 h-12 md:w-14 md:h-14 min-w-[48px] min-h-[48px] flex items-center justify-center cursor-pointer relative filter drop-shadow-[0_6px_16px_rgba(37,211,102,0.45)] hover:drop-shadow-[0_8px_22px_rgba(37,211,102,0.6)] active:scale-95 transition-transform touch-manipulation z-10 pointer-events-auto"
         title="Contact WhatsApp Support"
         aria-label="Contact WhatsApp Support"
-        role="button"
       >
         <motion.div
           animate={{
@@ -71,7 +56,7 @@ export default function WhatsAppCommunitySlider() {
           }}
           className="w-full h-full flex items-center justify-center pointer-events-none"
         >
-          <WhatsAppIcon className="w-full h-full object-contain" />
+          <WhatsAppIcon className="w-full h-full object-contain pointer-events-none" />
         </motion.div>
       </a>
     </div>

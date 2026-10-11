@@ -161,7 +161,7 @@ function BottomNavItem({ icon, label, active, onClick, gradientId, glowColor, is
     <button 
       type="button"
       onClick={onClick}
-      className="relative flex flex-col items-center justify-center flex-1 h-full min-h-[48px] py-1 z-10 transition-all duration-200 cursor-pointer touch-manipulation select-none active:scale-95"
+      className="relative flex flex-col items-center justify-center flex-1 h-full min-h-[48px] py-1 z-10 transition-all duration-200 cursor-pointer touch-manipulation select-none active:scale-95 pointer-events-auto"
       aria-label={label}
     >
       {/* Icon Wrapper */}
@@ -1339,7 +1339,7 @@ export default function Layout() {
             exit={{ opacity: 0, y: 30, scale: 0.95 }}
             transition={{ type: "spring", stiffness: 350, damping: 25 }}
             className={cn(
-              "lg:hidden fixed bottom-0 left-0 right-0 w-full h-[calc(4rem+env(safe-area-inset-bottom,0px))] pb-[env(safe-area-inset-bottom,0px)] z-[100] flex items-center px-2 sm:px-4 backdrop-blur-3xl border-t transition-all duration-300 pointer-events-auto",
+              "lg:hidden fixed bottom-0 left-0 right-0 w-full h-[calc(4rem+env(safe-area-inset-bottom,0px))] pb-[env(safe-area-inset-bottom,0px)] z-[500] flex items-center px-2 sm:px-4 backdrop-blur-3xl border-t transition-all duration-300 pointer-events-auto touch-manipulation",
               isDark 
                 ? "bg-[#06080c]/90 border-white/10 shadow-[0_-10px_30px_rgba(0,0,0,0.8)]" 
                 : "bg-white/95 border-[#009e42]/20 shadow-[0_-10px_25px_rgba(0,158,66,0.05)]",
@@ -1347,7 +1347,7 @@ export default function Layout() {
             )}
           >
             {/* SVG definitions for realistic icon linear gradients */}
-            <svg className="absolute w-0 h-0" width="0" height="0">
+            <svg className="absolute w-0 h-0 pointer-events-none select-none" width="0" height="0" aria-hidden="true" style={{ pointerEvents: 'none' }}>
               <defs>
                 <linearGradient id="homeIconGrad" x1="0%" y1="0%" x2="100%" y2="100%">
                   <stop offset="0%" stopColor="#ffb03a" />
@@ -2555,15 +2555,18 @@ export default function Layout() {
               <WhatsAppCommunitySlider />
             </div>
 
-            {/* Mobile Bottom Right: Floating WhatsApp Button well above bottom navigation */}
-            <div className="md:hidden fixed right-4 bottom-[calc(80px+env(safe-area-inset-bottom,0px))] z-[110] pointer-events-auto">
+            {/* Mobile Bottom Right: Floating WhatsApp Button comfortably above bottom navigation */}
+            <div className="md:hidden fixed right-4 bottom-[calc(88px+env(safe-area-inset-bottom,0px))] z-[450] pointer-events-none">
               <WhatsAppCommunitySlider />
             </div>
 
             {/* Choice Modal for Spin & Mine */}
             <AnimatePresence>
               {isSpinMineOpen && (
-                <div 
+                <motion.div 
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
                   className="fixed inset-0 bg-black/70 backdrop-blur-md z-[9999] flex items-center justify-center p-4 font-sans pointer-events-auto" 
                   onClick={() => setIsSpinMineOpen(false)}
                 >
@@ -2633,7 +2636,7 @@ export default function Layout() {
                       <span className="text-[8px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest font-mono">WAVE MAINNET SYSTEM SECURE</span>
                     </div>
                   </motion.div>
-                </div>
+                </motion.div>
               )}
             </AnimatePresence>
           </>

@@ -219,6 +219,10 @@ export default function MobilePullDownGesture() {
 
         // Execute smooth mode switch
         toggleModeRef.current(() => {
+          if (rootEl) {
+            rootEl.style.transform = '';
+            rootEl.style.transition = '';
+          }
           navigateRef.current('/home');
           isSwitchingRef.current = false;
         });

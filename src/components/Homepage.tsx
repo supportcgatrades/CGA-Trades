@@ -41,7 +41,7 @@ import { useUI } from '../contexts/UIContext';
 import { DynamicBalance } from './DynamicBalance';
 import { RotatingButtonText } from './RotatingButtonText';
 import { collection, query, where, onSnapshot, doc, updateDoc, runTransaction, increment } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { db, auth } from '../lib/firebase';
 import { toast } from 'sonner';
 import { isGoogleProfileIncomplete } from '../utils/googleProfile';
 import { broadcastActivity } from '../lib/activity_logger';
@@ -336,7 +336,6 @@ export default function Homepage() {
     // Check network connectivity first
     if (typeof navigator !== 'undefined' && !navigator.onLine) {
       toast.error("Network unavailable. Please reconnect and try again.");
-      handleDismissDailyClaim();
       return;
     }
     
@@ -345,12 +344,31 @@ export default function Homepage() {
     const toastId = toast.loading("Processing check-in...");
     
     try {
-      const nowIso = new Date().toISOString();
-      const userRef = doc(db, 'users', user.uid);
-      
-      const yesterdayDate = new Date(localNow);
+      if (!auth.currentUser && auth.authStateReady) {
+        await auth.authStateReady();
+      }
+      const activeUser = auth.currentUser || user;
+      if (!activeUser?.uid) {
+        throw new Error("Authentication required. Please sign in to claim.");
+      }
+
+      const now = new Date();
+      const nowIso = now.toISOString();
+      const currentTodayDateStr = [
+        now.getFullYear(), 
+        String(now.getMonth() + 1).padStart(2, '0'), 
+        String(now.getDate()).padStart(2, '0')
+      ].join('-');
+
+      const yesterdayDate = new Date(now);
       yesterdayDate.setDate(yesterdayDate.getDate() - 1);
-      const yStr = [yesterdayDate.getFullYear(), String(yesterdayDate.getMonth() + 1).padStart(2, '0'), String(yesterdayDate.getDate()).padStart(2, '0')].join('-');
+      const yStr = [
+        yesterdayDate.getFullYear(), 
+        String(yesterdayDate.getMonth() + 1).padStart(2, '0'), 
+        String(yesterdayDate.getDate()).padStart(2, '0')
+      ].join('-');
+
+      const userRef = doc(db, 'users', activeUser.uid);
 
       await runTransaction(db, async (transaction) => {
         const userSnap = await transaction.get(userRef);
@@ -364,11 +382,11 @@ export default function Homepage() {
         // Retrieve current reward tracking state nested under withdraw_methods
         const currentStreak = existingWithdrawMethods.current_streak || 0;
         const lastCheckIn = existingWithdrawMethods.last_check_in || '';
-        const claimedDatesList = existingWithdrawMethods.claimed_dates || [];
+        const claimedDatesList = existingWithdrawMethods.claimed_dates || userData.claimed_dates || [];
         const claimedDatesSet = new Set(claimedDatesList);
 
         // Check if already claimed today
-        if (claimedDatesSet.has(todayDateStr)) {
+        if (claimedDatesSet.has(currentTodayDateStr)) {
           throw new Error("Already signed attendance for today.");
         }
 
@@ -379,19 +397,20 @@ export default function Homepage() {
         if (lastCheckIn) {
           if (lastCheckInDateOnly === yStr) {
             newStreak = currentStreak + 1;
-          } else if (lastCheckInDateOnly === todayDateStr) {
+          } else if (lastCheckInDateOnly === currentTodayDateStr) {
             newStreak = currentStreak;
           } else {
             newStreak = 1;
           }
         }
 
-        const newClaimedDates = [...claimedDatesList, todayDateStr];
-        const newPointsBalance = (existingWithdrawMethods.points_balance || 0) + 1;
+        const newClaimedDates = [...claimedDatesList, currentTodayDateStr];
+        const newPointsBalance = (existingWithdrawMethods.points_balance || userData.points_balance || 0) + 1;
         const newTotalClaimedDays = (existingWithdrawMethods.total_claimed_days || 0) + 1;
 
         // Perform transaction write update
         transaction.update(userRef, {
+          points_balance: newPointsBalance,
           withdraw_methods: {
             ...existingWithdrawMethods,
             points_balance: newPointsBalance,
@@ -405,7 +424,7 @@ export default function Homepage() {
         // Write Transaction Log
         const txRef = doc(collection(db, 'transactions'));
         transaction.set(txRef, {
-          user_id: user.uid,
+          user_id: activeUser.uid,
           type: 'points_gain',
           amount: 1,
           status: 'approved',
@@ -416,7 +435,7 @@ export default function Homepage() {
         // Write Notification Log
         const notifRef = doc(collection(db, 'notifications'));
         transaction.set(notifRef, {
-          user_id: user.uid,
+          user_id: activeUser.uid,
           type: 'success',
           title: 'Daily Check-In Successful',
           message: 'Successfully checked in today! 1 Point has been credited to your balance.',
@@ -429,15 +448,16 @@ export default function Homepage() {
       setClaimStatus('claimed');
       
       // Close popup immediately upon authoritative success
-      setShowCheckInPopup(false);
-      closePopup('daily-check-in');
+      setTimeout(() => {
+        setShowCheckInPopup(false);
+        closePopup('daily-check-in');
+      }, 500);
 
     } catch (err: any) {
       console.error("Daily claim error:", err);
       setClaimStatus('idle');
-      toast.error(err.message || "Failed to process check-in.", { id: toastId });
-      // Dismiss for current app session so popup does not remain stuck
-      handleDismissDailyClaim();
+      toast.error(err.message || "Failed to process check-in. Please try again.", { id: toastId });
+      // Keep popup open and claimStatus idle so user is able to try again
     } finally {
       isClaimingRef.current = false;
     }
@@ -1328,18 +1348,24 @@ export default function Homepage() {
       {/* Daily Check-In/Claim Popup */}
       <AnimatePresence>
         {showCheckInPopup && (
-          <div className="fixed inset-0 z-[1000] flex flex-col items-center justify-center p-4">
+          <motion.div 
+            key="daily-check-in-popup-overlay"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[1000] flex flex-col items-center justify-center p-4 pointer-events-auto"
+          >
             {/* Reduced background blur - backdrop-blur-[2px] instead of heavy blur */}
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
+            <div 
               onClick={handleDismissDailyClaim}
               className="absolute inset-0 bg-black/60 backdrop-blur-[2px] cursor-pointer"
             />
             
             {/* Flex column container keeping Card at top and CLAIM button below */}
-            <div className="flex flex-col items-center gap-5 max-w-[260px] w-full relative z-10 select-none">
+            <div 
+              onClick={(e) => e.stopPropagation()}
+              className="flex flex-col items-center gap-5 max-w-[260px] w-full relative z-10 select-none pointer-events-auto"
+            >
               
               {/* Premium Light, Transparent/Glassmorphic Card */}
               <motion.div 
@@ -1348,7 +1374,7 @@ export default function Homepage() {
                 exit={{ opacity: 0, scale: 0.95, y: 15 }}
                 transition={{ type: 'spring', duration: 0.4 }}
                 className={cn(
-                  "w-full rounded-2xl px-6 py-10 text-center relative overflow-hidden transition-all duration-300",
+                  "w-full rounded-2xl px-6 py-10 text-center relative overflow-hidden transition-all duration-300 pointer-events-auto",
                   isLight
                     ? "bg-white border border-slate-200 shadow-[0_15px_35px_rgba(0,0,0,0.08)]"
                     : "bg-[#050608]/80 border border-white/10 hover:border-white/20 backdrop-blur-md shadow-[0_15px_35px_rgba(0,0,0,0.5)]"
@@ -1393,10 +1419,13 @@ export default function Homepage() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: 10 }}
                 transition={{ delay: 0.1 }}
-                onClick={handleDailyClaim}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleDailyClaim(e);
+                }}
                 disabled={claimStatus !== 'idle'}
                 className={cn(
-                  "px-8 py-3 rounded-xl text-[10px] font-black uppercase tracking-[0.25em] text-white shadow-lg transition-all italic duration-200 cursor-pointer w-auto min-w-[150px] text-center touch-manipulation",
+                  "px-8 py-3 rounded-xl text-[10px] font-black uppercase tracking-[0.25em] text-white shadow-lg transition-all italic duration-200 cursor-pointer w-auto min-w-[150px] text-center touch-manipulation pointer-events-auto",
                   claimStatus === 'idle' && "bg-gradient-to-r from-[#10B981] to-[#059669] hover:brightness-110 active:scale-95 shadow-[0_8px_20px_rgba(16,185,129,0.2)]",
                   claimStatus === 'claiming' && (isLight ? "bg-slate-200 text-slate-500 cursor-wait" : "bg-[#1F1D2B]/50 border border-white/5 opacity-80 cursor-wait"),
                   claimStatus === 'claimed' && "bg-emerald-500/25 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300 shadow-[0_4px_15px_rgba(16,185,129,0.15)] italic font-black uppercase"
@@ -1407,14 +1436,20 @@ export default function Homepage() {
                 {claimStatus === 'claimed' && "Claimed"}
               </motion.button>
             </div>
-          </div>
+          </motion.div>
         )}
       </AnimatePresence>
 
       {/* Explore Menu Popup */}
       <AnimatePresence>
         {showExploreModal && (
-          <div className="fixed inset-0 z-[1100] flex items-center justify-center p-4">
+          <motion.div 
+            key="explore-modal-overlay"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[1100] flex items-center justify-center p-4 pointer-events-auto"
+          >
             <motion.div 
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -1515,7 +1550,7 @@ export default function Homepage() {
                 ))}
               </div>
             </motion.div>
-          </div>
+          </motion.div>
         )}
       </AnimatePresence>
 
@@ -1529,7 +1564,13 @@ export default function Homepage() {
           );
 
           return (
-            <div className="fixed inset-0 z-[1000] flex flex-col items-center justify-center p-4">
+            <motion.div 
+              key="compound-popup-overlay"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[1000] flex flex-col items-center justify-center p-4 pointer-events-auto"
+            >
               <motion.div 
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
@@ -1765,7 +1806,7 @@ export default function Homepage() {
                   )}
                 </motion.div>
               </div>
-            </div>
+            </motion.div>
           );
         })()}
       </AnimatePresence>
@@ -1773,7 +1814,13 @@ export default function Homepage() {
       {/* Success Popup */}
       <AnimatePresence>
         {showCompoundSuccess && (
-          <div className="fixed inset-0 z-[1000] flex flex-col items-center justify-center p-4">
+          <motion.div 
+            key="compound-success-overlay"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[1000] flex flex-col items-center justify-center p-4 pointer-events-auto"
+          >
             <motion.div 
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -1831,7 +1878,7 @@ export default function Homepage() {
                 OK
               </motion.button>
             </div>
-          </div>
+          </motion.div>
         )}
       </AnimatePresence>
     </div>
