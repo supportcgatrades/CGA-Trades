@@ -21,7 +21,8 @@ import {
   updateDoc,
   increment,
   serverTimestamp,
-  addDoc 
+  addDoc,
+  limit
 } from 'firebase/firestore';
 import { auth, db, googleProvider, queryEmailsByPhonesRest, fetchUserDocRest, upsertUserDocRest } from '../lib/firebase';
 import { 
@@ -820,6 +821,17 @@ export default function LandingPage() {
           return;
         }
 
+        // Financial integrity: Before treating as brand new account, verify no historical ledger records exist
+        const [existingTxSnap, existingInvSnap] = await Promise.all([
+          withOperationTimeout(getDocs(query(collection(db, 'transactions'), where('user_id', '==', uid), limit(1))), 3000, "").catch(() => null),
+          withOperationTimeout(getDocs(query(collection(db, 'investments'), where('user_id', '==', uid), limit(1))), 3000, "").catch(() => null)
+        ]);
+
+        if ((existingTxSnap && !existingTxSnap.empty) || (existingInvSnap && !existingInvSnap.empty)) {
+          // This UID already has historical ledger records! Abort signup creation to protect their balances!
+          return;
+        }
+
         let pendingData = pendingDataInput;
         if (!pendingData) {
           try {
@@ -924,18 +936,22 @@ export default function LandingPage() {
         );
 
         const txId = `signup-bonus-${firebaseUser.uid}`;
-        withOperationTimeout(
-          setDoc(doc(db, 'transactions', txId), {
-            user_id: firebaseUser.uid,
-            type: 'signup_bonus',
-            amount: 10,
-            created_at: new Date().toISOString(),
-            status: 'approved',
-            description: "Congratulations, you have just received a $10 signup bonus into your assets balance."
-          }),
-          5000,
-          "Bonus tx timeout"
-        ).catch(() => {});
+        const bonusTxRef = doc(db, 'transactions', txId);
+        const existingBonusSnap = await getDoc(bonusTxRef).catch(() => null);
+        if (!existingBonusSnap?.exists()) {
+          withOperationTimeout(
+            setDoc(bonusTxRef, {
+              user_id: firebaseUser.uid,
+              type: 'signup_bonus',
+              amount: 10,
+              created_at: new Date().toISOString(),
+              status: 'approved',
+              description: "Congratulations, you have just received a $10 signup bonus into your assets balance."
+            }),
+            4000,
+            "Signup bonus write timeout"
+          ).catch(() => {});
+        }
 
         if (referrerId) {
           updateDoc(doc(db, 'users', referrerId), {
@@ -998,7 +1014,6 @@ export default function LandingPage() {
       if (refreshedUser.emailVerified) {
         setVerificationError(null);
         toast.success("Your email is already verified! Signing you in...");
-        void ensureSignupProfileCreated(refreshedUser);
         updateDoc(doc(db, 'users', refreshedUser.uid), { email_verified: true }).catch(() => {});
         void syncAuthSession(refreshedUser);
         setVerificationSent(false);
@@ -1039,7 +1054,6 @@ export default function LandingPage() {
         } catch (e) {}
         const refreshedUser = auth.currentUser || targetUser;
         if (refreshedUser.emailVerified) {
-          void ensureSignupProfileCreated(refreshedUser);
           updateDoc(doc(db, 'users', refreshedUser.uid), { email_verified: true }).catch(() => {});
           void syncAuthSession(refreshedUser);
           setVerificationSent(false);
@@ -1073,7 +1087,6 @@ export default function LandingPage() {
         await withOperationTimeout(targetUser.reload(), 4000, "Reload timeout");
         const refreshedUser = auth.currentUser || targetUser;
         if (refreshedUser.emailVerified) {
-          void ensureSignupProfileCreated(refreshedUser);
           updateDoc(doc(db, 'users', refreshedUser.uid), { email_verified: true }).catch(() => {});
           void syncAuthSession(refreshedUser);
           setVerificationSent(false);
@@ -1549,11 +1562,9 @@ export default function LandingPage() {
                 cachePhoneEmailMapping(canonicalPhone, resolvedEmail || firebaseUser.email || '');
               }
             }
-          } else {
-            await ensureSignupProfileCreated(firebaseUser);
           }
-        } catch {
-          void ensureSignupProfileCreated(firebaseUser);
+        } catch (e) {
+          console.warn("Background signin sync note:", e);
         }
       })();
 
@@ -1684,8 +1695,10 @@ export default function LandingPage() {
       const isCipher = user.email === 'support@tavariwave.network' || user.email === 'contact.cga.usa@gmail.com' || user.uid === '3yV3rfcUzob5v9ltfVcMw0PL6tQ2';
 
       let userDoc = null;
+      let fetchSuccess = false;
       try {
-        userDoc = await withOperationTimeout(getDoc(doc(db, 'users', user.uid)), 3000, "Profile fetch timeout");
+        userDoc = await withOperationTimeout(getDoc(doc(db, 'users', user.uid)), 5000, "Profile fetch timeout");
+        fetchSuccess = true;
       } catch (err: any) {
         console.warn("Soft-caught Firestore permission/fetch error in handleGoogleAuth:", err);
       }
@@ -1707,73 +1720,90 @@ export default function LandingPage() {
         return;
       }
 
-      if (!userDoc || !userDoc.exists()) {
-        // Create initial Google user profile immediately so user can enter Home without blocking
-        const nowIso = new Date().toISOString();
-        const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-        let randCode = 'CGA-';
-        for (let i = 0; i < 5; i++) {
-          randCode += chars.charAt(Math.floor(Math.random() * chars.length));
-        }
-        const userRefCode = isCipher ? 'CIPHER' : randCode;
-        const publicId = `CGA${Math.floor(100000 + Math.random() * 900000)}`;
-
-        let referrerId: string | null = null;
-        let referrerCodeValue: string | null = null;
-        if (referralCode?.trim()) {
-          const cleanRef = referralCode.trim().toUpperCase();
-          try {
-            const snap = await getDocs(query(collection(db, 'users'), where('referral_code', '==', cleanRef)));
-            if (!snap.empty) {
-              referrerId = snap.docs[0].id;
-              referrerCodeValue = cleanRef;
-              updateDoc(doc(db, 'users', referrerId), {
-                referrals_count: increment(1)
-              }).catch(() => {});
-            }
-          } catch (e) {}
-        }
-
-        const initialGoogleProfile = {
-          uid: user.uid,
-          name: isCipher ? 'Cipher' : (user.displayName || user.email?.split('@')[0] || 'Nexus User'),
-          username: isCipher ? 'cipher_root' : (user.email?.split('@')[0] || 'user').toLowerCase().replace(/[^a-z0-9_]/g, ''),
-          email: user.email || '',
-          phone: '',
-          country: '',
-          countryName: '',
-          country_code: '',
-          countryCode: '',
-          country_flag: '',
-          countryFlag: '',
-          public_id: publicId,
-          referral_code: userRefCode,
-          referral_link: `${window.location.origin}/signup?ref=${userRefCode}`,
-          referred_by: referrerId,
-          referrer_uid: referrerId,
-          referrer_code: referrerCodeValue,
-          referrals_count: 0,
-          active_referrals: 0,
-          referral_earnings: 0,
-          role: isCipher ? 'cipher' : 'user',
-          funding_balance: 0,
-          available_balance: 0,
-          total_earnings: 0,
-          total_invested: 0,
-          bonus_credited: false,
-          email_verified: true,
-          profile_completed: false,
-          is_google_user: true,
-          created_at: nowIso,
-          roi_cycle_start: nowIso,
-          last_rebook: nowIso
-        };
-
+      // Safeguard: Only create an initial Google profile if the fetch actually succeeded and confirmed no doc exists
+      if (fetchSuccess && (!userDoc || !userDoc.exists())) {
+        // Also check if any historical transactions or investments exist for this user before setting 0 balances
+        let hasHistoricalRecords = false;
         try {
-          await setDoc(doc(db, 'users', user.uid), initialGoogleProfile, { merge: true });
-        } catch {
-          const token = await user.getIdToken().catch(() => undefined);
-          await upsertUserDocRest(user.uid, initialGoogleProfile, token, 4000);
+          const [txSnap, invSnap] = await Promise.all([
+            getDocs(query(collection(db, 'transactions'), where('user_id', '==', user.uid), limit(1))).catch(() => null),
+            getDocs(query(collection(db, 'investments'), where('user_id', '==', user.uid), limit(1))).catch(() => null)
+          ]);
+          if ((txSnap && !txSnap.empty) || (invSnap && !invSnap.empty)) {
+            hasHistoricalRecords = true;
+          }
+        } catch (hErr) {
+          console.warn("Historical check error in handleGoogleAuth:", hErr);
+        }
+
+        if (!hasHistoricalRecords) {
+          // Create initial Google user profile immediately so new user can enter Home without blocking
+          const nowIso = new Date().toISOString();
+          const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+          let randCode = 'CGA-';
+          for (let i = 0; i < 5; i++) {
+            randCode += chars.charAt(Math.floor(Math.random() * chars.length));
+          }
+          const userRefCode = isCipher ? 'CIPHER' : randCode;
+          const publicId = `CGA${Math.floor(100000 + Math.random() * 900000)}`;
+
+          let referrerId: string | null = null;
+          let referrerCodeValue: string | null = null;
+          if (referralCode?.trim()) {
+            const cleanRef = referralCode.trim().toUpperCase();
+            try {
+              const snap = await getDocs(query(collection(db, 'users'), where('referral_code', '==', cleanRef)));
+              if (!snap.empty) {
+                referrerId = snap.docs[0].id;
+                referrerCodeValue = cleanRef;
+                updateDoc(doc(db, 'users', referrerId), {
+                  referrals_count: increment(1)
+                }).catch(() => {});
+              }
+            } catch (e) {}
+          }
+
+          const initialGoogleProfile = {
+            uid: user.uid,
+            name: isCipher ? 'Cipher' : (user.displayName || user.email?.split('@')[0] || 'Nexus User'),
+            username: isCipher ? 'cipher_root' : (user.email?.split('@')[0] || 'user').toLowerCase().replace(/[^a-z0-9_]/g, ''),
+            email: user.email || '',
+            phone: '',
+            country: '',
+            countryName: '',
+            country_code: '',
+            countryCode: '',
+            country_flag: '',
+            countryFlag: '',
+            public_id: publicId,
+            referral_code: userRefCode,
+            referral_link: `${window.location.origin}/signup?ref=${userRefCode}`,
+            referred_by: referrerId,
+            referrer_uid: referrerId,
+            referrer_code: referrerCodeValue,
+            referrals_count: 0,
+            active_referrals: 0,
+            referral_earnings: 0,
+            role: isCipher ? 'cipher' : 'user',
+            funding_balance: 0,
+            available_balance: 0,
+            total_earnings: 0,
+            total_invested: 0,
+            bonus_credited: false,
+            email_verified: true,
+            profile_completed: false,
+            is_google_user: true,
+            created_at: nowIso,
+            roi_cycle_start: nowIso,
+            last_rebook: nowIso
+          };
+
+          try {
+            await setDoc(doc(db, 'users', user.uid), initialGoogleProfile, { merge: true });
+          } catch {
+            const token = await user.getIdToken().catch(() => undefined);
+            await upsertUserDocRest(user.uid, initialGoogleProfile, token, 4000);
+          }
         }
       }
 
@@ -1867,11 +1897,7 @@ export default function LandingPage() {
       } catch (e) {}
       const existingData = existingGoogleSnap?.exists() ? existingGoogleSnap.data() : null;
 
-      const newUserProfile = {
-        uid: googleSetupUser.uid,
-        name: isCipher ? 'Cipher' : (existingData?.name || googleSetupUser.displayName || 'Nexus User'),
-        username: isCipher ? 'cipher_root' : (existingData?.username || googleSetupUser.email?.split('@')[0] || 'user'),
-        email: googleSetupUser.email || existingData?.email || '',
+      const updates: any = {
         phone: normalizePhoneNumber(googlePhone, countryContext.countryCode),
         country: countryContext.countryName,
         countryName: countryContext.countryName,
@@ -1879,32 +1905,15 @@ export default function LandingPage() {
         countryCode: countryContext.countryCode,
         country_flag: countryContext.countryFlag,
         countryFlag: countryContext.countryFlag,
-        public_id: existingData?.public_id || generatePublicId(),
-        referral_code: existingData?.referral_code || userRefCode,
-        referral_link: `${window.location.origin}/signup?ref=${existingData?.referral_code || userRefCode}`,
-        referred_by: existingData?.referred_by ?? referrerId,
-        referrer_uid: existingData?.referrer_uid ?? referrerId,
-        referrer_code: existingData?.referrer_code ?? referrerCodeValue,
-        referrals_count: existingData?.referrals_count ?? 0,
-        active_referrals: existingData?.active_referrals ?? 0,
-        referral_earnings: existingData?.referral_earnings ?? 0,
-        role: isCipher ? 'cipher' : (existingData?.role || 'user'),
-        funding_balance: existingData?.funding_balance ?? 0,
-        available_balance: existingData?.available_balance ?? 0,
-        total_earnings: existingData?.total_earnings ?? 0,
-        total_invested: existingData?.total_invested ?? 10,
         email_verified: true,
-        suspended: existingData?.suspended ?? false,
-        banned: existingData?.banned ?? false,
-        roi_disabled: existingData?.roi_disabled ?? false,
-        withdrawals_frozen: existingData?.withdrawals_frozen ?? false,
-        transfers_frozen: existingData?.transfers_frozen ?? false,
-        created_at: existingData?.created_at || new Date().toISOString(),
-        roi_cycle_start: existingData?.roi_cycle_start || new Date().toISOString(),
-        last_rebook: existingData?.last_rebook || new Date().toISOString()
+        profile_completed: true,
+        bonus_credited: true
       };
 
       if (referrerId && !existingData?.referred_by) {
+        updates.referred_by = referrerId;
+        updates.referrer_uid = referrerId;
+        updates.referrer_code = referrerCodeValue;
         try {
           await updateDoc(doc(db, 'users', referrerId), {
             referrals_count: increment(1)
@@ -1912,10 +1921,15 @@ export default function LandingPage() {
         } catch (e) {}
       }
 
-      await setDoc(doc(db, 'users', googleSetupUser.uid), newUserProfile, { merge: true });
+      // If brand new account with no existing investment record, initialize welcome assets safely
+      if (existingData?.total_invested === undefined || existingData?.total_invested === null || existingData?.total_invested === 0) {
+        updates.total_invested = 10;
+      }
+
+      await updateDoc(doc(db, 'users', googleSetupUser.uid), updates);
 
       broadcastActivity(
-        newUserProfile.name || "New Partner",
+        existingData?.name || googleSetupUser.displayName || "New Partner",
         "Registered",
         undefined,
         true,
@@ -1923,14 +1937,18 @@ export default function LandingPage() {
       );
 
       const txId = `signup-bonus-${googleSetupUser.uid}`;
-      await setDoc(doc(db, 'transactions', txId), {
-        user_id: googleSetupUser.uid,
-        type: 'signup_bonus',
-        amount: 10,
-        created_at: new Date().toISOString(),
-        status: 'approved',
-        description: "Congratulations, you have just received a $10 signup bonus into your assets balance."
-      });
+      const bonusTxRef = doc(db, 'transactions', txId);
+      const existingBonusSnap = await getDoc(bonusTxRef).catch(() => null);
+      if (!existingBonusSnap?.exists()) {
+        await setDoc(bonusTxRef, {
+          user_id: googleSetupUser.uid,
+          type: 'signup_bonus',
+          amount: 10,
+          created_at: existingData?.created_at || new Date().toISOString(),
+          status: 'approved',
+          description: "Congratulations, you have just received a $10 signup bonus into your assets balance."
+        });
+      }
 
       // Register device
       const deviceId = getDeviceFingerprint();

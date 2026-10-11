@@ -33,37 +33,47 @@ export function WhatsAppIcon({ className = "w-full h-full" }: { className?: stri
 export default function WhatsAppCommunitySlider() {
   const whatsappLink = CGA_WHATSAPP_SUPPORT_URL;
 
+  const handleClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
+    // Ensure smooth, immediate activation on all devices
+    if (!whatsappLink) return;
+    try {
+      const win = window.open(whatsappLink, '_blank', 'noopener,noreferrer');
+      if (win) {
+        e.preventDefault();
+      }
+    } catch {
+      // Fallback to normal anchor navigation if window.open is restricted
+    }
+  };
+
   return (
-    <div className="relative select-none flex justify-end">
-      {/* Floating WhatsApp Button: The WhatsApp icon itself is the clickable button */}
-      <motion.a
+    <div className="relative select-none flex justify-end pointer-events-auto">
+      {/* Floating WhatsApp Button: Fixed, stable anchor hitbox with animated visual inner icon */}
+      <a
         href={whatsappLink}
         target="_blank"
         rel="noopener noreferrer"
-        initial={{ opacity: 0, scale: 0.8 }}
-        animate={{ 
-          opacity: 1, 
-          scale: 1,
-          y: [0, -4, 0]
-        }}
-        transition={{
-          opacity: { duration: 0.3 },
-          scale: { duration: 0.3 },
-          y: {
-            duration: 4,
+        onClick={handleClick}
+        className="w-12 h-12 md:w-14 md:h-14 min-w-[48px] min-h-[48px] flex items-center justify-center cursor-pointer relative filter drop-shadow-[0_6px_16px_rgba(37,211,102,0.45)] hover:drop-shadow-[0_8px_22px_rgba(37,211,102,0.6)] active:scale-95 transition-transform touch-manipulation z-10 pointer-events-auto"
+        title="Contact WhatsApp Support"
+        aria-label="Contact WhatsApp Support"
+        role="button"
+      >
+        <motion.div
+          animate={{
+            y: [0, -3, 0]
+          }}
+          transition={{
+            duration: 3.5,
             repeat: Infinity,
             repeatType: "reverse",
             ease: "easeInOut"
-          }
-        }}
-        whileHover={{ scale: 1.08 }}
-        whileTap={{ scale: 0.95 }}
-        className="w-12 h-12 md:w-14 md:h-14 flex items-center justify-center cursor-pointer relative filter drop-shadow-[0_6px_16px_rgba(37,211,102,0.45)] hover:drop-shadow-[0_8px_22px_rgba(37,211,102,0.6)] transition-all"
-        title="Contact WhatsApp Support"
-        aria-label="Contact WhatsApp Support"
-      >
-        <WhatsAppIcon className="w-full h-full object-contain" />
-      </motion.a>
+          }}
+          className="w-full h-full flex items-center justify-center pointer-events-none"
+        >
+          <WhatsAppIcon className="w-full h-full object-contain" />
+        </motion.div>
+      </a>
     </div>
   );
 }

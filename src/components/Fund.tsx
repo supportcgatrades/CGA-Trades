@@ -162,9 +162,19 @@ export default function Fund() {
         return true;
       });
 
-      const combined = unique.sort((a: any, b: any) => 
-        new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-      );
+      const getTxTime = (item: any): number => {
+        if (!item) return 0;
+        if (item.type === 'signup_bonus' && profile?.created_at) {
+          const accTime = new Date(profile.created_at).getTime();
+          if (!isNaN(accTime)) return accTime;
+        }
+        const raw = item.created_at || item.timestamp;
+        if (!raw) return 0;
+        const parsed = new Date(raw).getTime();
+        return isNaN(parsed) ? 0 : parsed;
+      };
+
+      const combined = unique.sort((a: any, b: any) => getTxTime(b) - getTxTime(a));
       setTransactions(combined);
     };
 

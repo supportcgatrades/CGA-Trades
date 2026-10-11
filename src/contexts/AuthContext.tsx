@@ -17,7 +17,8 @@ import {
   getDoc,
   setDoc,
   serverTimestamp,
-  runTransaction
+  runTransaction,
+  limit
 } from 'firebase/firestore';
 import { auth, db, fetchUserDocRest, upsertUserDocRest } from '../lib/firebase';
 import { getRoiByAmount, isWeekendROI } from '../lib/utils';
@@ -327,6 +328,44 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     bootstrappedProfilesRef.current.add(uid);
 
     try {
+      const userDocRef = doc(db, 'users', uid);
+      let existingUserSnap: any = null;
+      try {
+        existingUserSnap = await getDoc(userDocRef);
+        if (existingUserSnap.exists()) {
+          const existingDocData = existingUserSnap.data();
+          setProfile(existingDocData as UserProfile);
+          return;
+        }
+      } catch (readErr) {
+        console.warn("User profile read deferred during bootstrap check:", readErr);
+        // CRITICAL FINANCIAL INTEGRITY: Never overwrite an existing user's balances if reading failed or was slow!
+        return;
+      }
+
+      // Mandatory check: Before treating user as new and writing default balances, verify if historical records exist
+      let hasHistoricalRecords = false;
+      let existingInvsSum = 0;
+      let earliestHistoricalDate: string | null = null;
+      try {
+        const [txSnap, invSnap] = await Promise.all([
+          getDocs(query(collection(db, 'transactions'), where('user_id', '==', uid), limit(10))),
+          getDocs(query(collection(db, 'investments'), where('user_id', '==', uid)))
+        ]);
+        if (!txSnap.empty || !invSnap.empty) {
+          hasHistoricalRecords = true;
+          existingInvsSum = invSnap.docs.reduce((sum, d) => sum + (Number(d.data().amount) || 0), 0);
+          txSnap.docs.forEach(d => {
+            const c = d.data().created_at;
+            if (c && (!earliestHistoricalDate || new Date(c).getTime() < new Date(earliestHistoricalDate).getTime())) {
+              earliestHistoricalDate = c;
+            }
+          });
+        }
+      } catch (historyCheckErr) {
+        console.warn("Historical records audit note:", historyCheckErr);
+      }
+
       let pendingData: any = null;
       try {
         const rawPending = localStorage.getItem(`pending_signup_${uid}`);
@@ -367,7 +406,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
       const userRefCode = isCipher ? 'CIPHER' : (pendingData?.userRefCode || randCode);
       const publicId = pendingData?.public_id || `CGA${Math.floor(100000 + Math.random() * 900000)}`;
-      const nowIso = new Date().toISOString();
+      const nowIso = earliestHistoricalDate || new Date().toISOString();
+
+      const calculatedTotalInvested = hasHistoricalRecords 
+        ? Math.max(existingInvsSum, 0)
+        : (isGoogle ? (recoveredPhone && recoveredPhone.length >= 5 ? 10 : 0) : 10);
 
       const healedProfile: UserProfile = {
         uid,
@@ -394,7 +437,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         funding_balance: 0,
         available_balance: 0,
         total_earnings: 0,
-        total_invested: isGoogle ? (recoveredPhone && recoveredPhone.length >= 5 ? 10 : 0) : 10,
+        total_invested: calculatedTotalInvested,
         email_verified: Boolean(targetUser.emailVerified || isCipher),
         profile_completed: isGoogle ? Boolean(recoveredPhone && recoveredPhone.length >= 5) : true,
         is_google_user: Boolean(isGoogle),
@@ -409,16 +452,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         last_rebook: nowIso
       };
 
-      const userDocRef = doc(db, 'users', uid);
-      try {
-        const existingUserSnap = await getDoc(userDocRef);
-        if (existingUserSnap.exists()) {
-          const existingDocData = existingUserSnap.data();
-          setProfile(existingDocData as UserProfile);
-          return;
-        }
-      } catch {}
-
       setProfile((prev) => prev || healedProfile);
 
       try {
@@ -428,17 +461,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         await upsertUserDocRest(uid, healedProfile, token, 5000);
       }
 
+      // Safeguard: NEVER overwrite or recreate signup bonus if user has historical records or if it already exists
       const isEligibleForBonus = !isGoogle || Boolean(recoveredPhone && recoveredPhone.length >= 5);
-      if (isEligibleForBonus) {
+      if (isEligibleForBonus && !hasHistoricalRecords) {
         const txId = `signup-bonus-${uid}`;
-        setDoc(doc(db, 'transactions', txId), {
-          user_id: uid,
-          type: 'signup_bonus',
-          amount: 10,
-          created_at: nowIso,
-          status: 'approved',
-          description: "Congratulations, you have just received a $10 signup bonus into your assets balance."
-        }).catch(() => {});
+        const bonusDocRef = doc(db, 'transactions', txId);
+        const existingBonusSnap = await getDoc(bonusDocRef).catch(() => null);
+        if (!existingBonusSnap?.exists()) {
+          setDoc(bonusDocRef, {
+            user_id: uid,
+            type: 'signup_bonus',
+            amount: 10,
+            created_at: nowIso,
+            status: 'approved',
+            description: "Congratulations, you have just received a $10 signup bonus into your assets balance."
+          }).catch(() => {});
+        }
       }
 
       try {
@@ -933,54 +971,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const docRef = doc(db, 'users', firebaseUser.uid);
     try {
-      const txQuery = query(collection(db, 'transactions'), where('user_id', '==', firebaseUser.uid));
-      const txSnap = await getDocs(txQuery);
-
-      let totalReferralClaims = 0;
-
-      txSnap.docs.forEach(docSnap => {
-        const tx = docSnap.data();
-        if (tx.status === 'approved' && tx.type === 'referral_reward') {
-          totalReferralClaims += tx.amount || 0;
+      // Financial integrity safeguard: Never arbitrarily deduct user balance during data migrations
+      await updateDoc(docRef, {
+        withdraw_methods: {
+          ...currentWithdrawMethods,
+          rewards_migrated_v2: true
         }
       });
-
-      if (totalReferralClaims > 0) {
-        await runTransaction(db, async (transaction) => {
-          const uSnap = await transaction.get(docRef);
-          if (!uSnap.exists()) return;
-
-          const uData = uSnap.data() as UserProfile;
-          const uWithdrawMethods = uData.withdraw_methods || {};
-          if (uWithdrawMethods.rewards_migrated_v2) return;
-
-          const currentAvailable = uData.available_balance || 0;
-          const oldRewardDollarBalance = uWithdrawMethods.reward_dollar_balance || 0;
-
-          let newAvailable = currentAvailable - totalReferralClaims;
-          if (newAvailable < 0) newAvailable = 0;
-
-          const newRewardDollar = oldRewardDollarBalance + totalReferralClaims;
-
-          transaction.update(docRef, {
-            available_balance: newAvailable,
-            withdraw_methods: {
-              ...uWithdrawMethods,
-              reward_dollar_balance: newRewardDollar,
-              rewards_migrated_v2: true
-            }
-          });
-        });
-      } else {
-        await updateDoc(docRef, {
-          withdraw_methods: {
-            ...currentWithdrawMethods,
-            rewards_migrated_v2: true
-          }
-        });
-      }
     } catch (err) {
-      console.error("[Migration Error] Failed to execute exact data correction:", err);
+      console.warn("[Migration Safe Guard] Profile update note:", err);
     }
   }, []);
 
@@ -1411,6 +1410,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const expectedTotal = totalFromInvs + (profileData.welcome_bonus_deducted ? 0 : 10);
         userUpdates.total_invested = expectedTotal;
         needsProfileUpdate = true;
+      }
+
+      // Restore true historical timestamp on signup bonus if it was corrupted to a recent date by the bug
+      const bonusTx = existingTxs.find(t => t.id === `signup-bonus-${firebaseUser.uid}` || t.type === 'signup_bonus');
+      if (bonusTx && profileData.created_at) {
+        const bonusTime = new Date(bonusTx.created_at).getTime();
+        const accountTime = new Date(profileData.created_at).getTime();
+        if (!isNaN(bonusTime) && !isNaN(accountTime) && bonusTime > accountTime + 60000) {
+          const bonusRef = doc(db, 'transactions', bonusTx.id || `signup-bonus-${firebaseUser.uid}`);
+          await updateDoc(bonusRef, {
+            created_at: profileData.created_at
+          }).catch(() => {});
+        }
       }
 
       // Ensure for every existing investment in investments, a transaction exists for History

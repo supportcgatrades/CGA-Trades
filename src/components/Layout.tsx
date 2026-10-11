@@ -158,35 +158,36 @@ function BottomNavItem({ icon, label, active, onClick, gradientId, glowColor, is
   const activeGreen = "#009e42";
 
   return (
-    <motion.button 
+    <button 
+      type="button"
       onClick={onClick}
-      whileTap={{ scale: 0.95 }}
-      className="relative flex flex-col items-center justify-center flex-1 h-full py-1 z-10 transition-all duration-300 cursor-pointer"
+      className="relative flex flex-col items-center justify-center flex-1 h-full min-h-[48px] py-1 z-10 transition-all duration-200 cursor-pointer touch-manipulation select-none active:scale-95"
+      aria-label={label}
     >
       {/* Icon Wrapper */}
-      <motion.div 
-        animate={{ 
-          scale: active ? 1.05 : 1
-        }}
-        transition={{ type: "spring", stiffness: 350, damping: 25 }}
-        className="relative flex items-center justify-center transition-all duration-300"
+      <div 
+        className={cn(
+          "relative flex items-center justify-center transition-all duration-200 pointer-events-none select-none",
+          active ? "scale-105" : "scale-100"
+        )}
       >
         {isProfile ? (
           <div className={cn(
-            "w-5 h-5 rounded-full overflow-hidden border transition-all duration-300 relative flex-shrink-0",
+            "w-5 h-5 rounded-full overflow-hidden border transition-all duration-200 relative flex-shrink-0 pointer-events-none",
             active ? "border-[#009e42] scale-105" : "border-white/40"
           )}>
             <img 
               src={profilePhoto || `https://api.dicebear.com/7.x/avataaars/svg?seed=nexus`} 
               alt={label} 
-              className="w-full h-full object-cover animate-none" 
+              className="w-full h-full object-cover animate-none pointer-events-none select-none" 
+              draggable={false}
             />
           </div>
         ) : React.isValidElement(icon)
           ? React.cloneElement(icon as React.ReactElement, { 
               size: 18,
               className: cn(
-                "transition-all duration-300", 
+                "transition-all duration-200 pointer-events-none", 
                 active ? "text-[#009e42] drop-shadow-[0_0_4px_rgba(0,158,66,0.4)]" : "text-white/60 hover:text-white"
               )
             })
@@ -194,24 +195,23 @@ function BottomNavItem({ icon, label, active, onClick, gradientId, glowColor, is
         
         {/* Subtle dot beneath active icon */}
         {active && (
-          <motion.div
-            layoutId={`dot-${gradientId}`}
+          <div
             className="absolute -bottom-1.5 w-1 h-1 rounded-full pointer-events-none shadow-[0_0_6px_rgba(0,158,66,0.8)]"
             style={{ backgroundColor: activeGreen }}
           />
         )}
-      </motion.div>
+      </div>
 
       {/* Label */}
       <span className={cn(
-        "text-[8px] font-black capitalize tracking-[0.12em] transition-all duration-300 mt-1 select-none", 
+        "text-[8px] font-black capitalize tracking-[0.12em] transition-all duration-200 mt-1 select-none pointer-events-none", 
         active 
           ? "text-[#009e42] font-black opacity-100 drop-shadow-[0_0_4px_rgba(0,158,66,0.15)]" 
           : "text-white/45 opacity-100 hover:text-white"
       )}>
         {label}
       </span>
-    </motion.button>
+    </button>
   );
 }
 
@@ -1339,7 +1339,7 @@ export default function Layout() {
             exit={{ opacity: 0, y: 30, scale: 0.95 }}
             transition={{ type: "spring", stiffness: 350, damping: 25 }}
             className={cn(
-              "lg:hidden fixed bottom-0 left-0 right-0 w-full h-16 pb-1 z-[100] flex items-center px-4 backdrop-blur-3xl border-t transition-all duration-300",
+              "lg:hidden fixed bottom-0 left-0 right-0 w-full h-[calc(4rem+env(safe-area-inset-bottom,0px))] pb-[env(safe-area-inset-bottom,0px)] z-[100] flex items-center px-2 sm:px-4 backdrop-blur-3xl border-t transition-all duration-300 pointer-events-auto",
               isDark 
                 ? "bg-[#06080c]/90 border-white/10 shadow-[0_-10px_30px_rgba(0,0,0,0.8)]" 
                 : "bg-white/95 border-[#009e42]/20 shadow-[0_-10px_25px_rgba(0,158,66,0.05)]",
@@ -1470,7 +1470,7 @@ export default function Layout() {
               sessionStorage.setItem('google_profile_tooltip_dismissed', 'true');
               handleNavigation('/profile');
             }}
-            className="fixed bottom-[74px] right-2 sm:right-6 md:right-8 z-50 flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-900/95 dark:bg-[#11141b]/95 text-white border border-[#009e42]/50 shadow-[0_8px_20px_rgba(0,158,66,0.3)] backdrop-blur-md cursor-pointer select-none"
+            className="fixed bottom-[calc(140px+env(safe-area-inset-bottom,0px))] right-2 sm:right-6 md:right-8 z-[115] flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-900/95 dark:bg-[#11141b]/95 text-white border border-[#009e42]/50 shadow-[0_8px_20px_rgba(0,158,66,0.3)] backdrop-blur-md cursor-pointer select-none pointer-events-auto"
           >
             <span className="w-1.5 h-1.5 rounded-full bg-[#009e42] animate-pulse shrink-0" />
             <span className="text-[11px] font-bold text-white tracking-tight whitespace-nowrap">
@@ -2548,15 +2548,15 @@ export default function Layout() {
 
       {/* 5. FLOATING CONTROLS ROW */}
       <AnimatePresence>
-        {(location.pathname === '/home' || location.pathname === '/') && (
+        {(location.pathname === '/home' || location.pathname === '/' || location.pathname === '/dashboard') && (
           <>
-            {/* Desktop and Tablet: Floating Telegram Button at the bottom right side */}
+            {/* Desktop and Tablet: Floating WhatsApp Button at the bottom right side */}
             <div className="hidden md:block fixed right-8 bottom-8 z-[110] pointer-events-auto">
               <WhatsAppCommunitySlider />
             </div>
 
-            {/* Mobile Bottom Right: Floating WhatsApp Button close to top edge of bottom navigation */}
-            <div className="md:hidden fixed right-4 bottom-[calc(68px+env(safe-area-inset-bottom,0px))] z-[110] pointer-events-auto">
+            {/* Mobile Bottom Right: Floating WhatsApp Button well above bottom navigation */}
+            <div className="md:hidden fixed right-4 bottom-[calc(80px+env(safe-area-inset-bottom,0px))] z-[110] pointer-events-auto">
               <WhatsAppCommunitySlider />
             </div>
 
