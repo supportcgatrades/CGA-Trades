@@ -37,7 +37,7 @@ import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
 import { db } from '../lib/firebase';
 import { collection, addDoc, serverTimestamp, query, where, onSnapshot } from 'firebase/firestore';
-import { WhatsAppIcon, CGA_WHATSAPP_SUPPORT_URL } from './WhatsAppCommunitySlider';
+import { WhatsAppIcon, CGA_WHATSAPP_SUPPORT_URL, CGA_WHATSAPP_SUPPORT_DISPLAY } from './WhatsAppCommunitySlider';
 
 interface ChatMessage {
   role: 'user' | 'bot';
@@ -458,7 +458,7 @@ export default function Support() {
             <ContactCard 
               icon={<WhatsAppIcon className="w-5 h-5 flex-shrink-0" />}
               label="WhatsApp Support" 
-              value="+1 (937) 600-2568" 
+              value={CGA_WHATSAPP_SUPPORT_DISPLAY} 
               href={CGA_WHATSAPP_SUPPORT_URL}
               brandColor="text-[#25D366]"
               bgColor="bg-[#25D366]/10"

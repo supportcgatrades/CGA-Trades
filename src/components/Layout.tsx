@@ -2556,7 +2556,7 @@ export default function Layout() {
             </div>
 
             {/* Mobile Bottom Right: Floating WhatsApp Button comfortably above bottom navigation */}
-            <div className="md:hidden fixed right-4 bottom-[calc(88px+env(safe-area-inset-bottom,0px))] z-[450] pointer-events-none">
+            <div className="md:hidden fixed right-4 bottom-[calc(88px+env(safe-area-inset-bottom,0px))] z-[450] pointer-events-auto">
               <WhatsAppCommunitySlider />
             </div>
 

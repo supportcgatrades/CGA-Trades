@@ -2,7 +2,8 @@ import React from 'react';
 import { motion } from 'motion/react';
 
 // Single authoritative source of truth for the CGA WhatsApp Support Contact
-export const CGA_WHATSAPP_SUPPORT_NUMBER = '19376002568';
+export const CGA_WHATSAPP_SUPPORT_NUMBER = '12893842604';
+export const CGA_WHATSAPP_SUPPORT_DISPLAY = '+1 289 384 2604';
 export const CGA_WHATSAPP_SUPPORT_MESSAGE = 'Hello, I would like to speak with customer service. Please assist me.';
 export const CGA_WHATSAPP_SUPPORT_URL = `https://wa.me/${CGA_WHATSAPP_SUPPORT_NUMBER}?text=${encodeURIComponent(CGA_WHATSAPP_SUPPORT_MESSAGE)}`;
 
@@ -33,13 +34,30 @@ export function WhatsAppIcon({ className = "w-full h-full" }: { className?: stri
 export default function WhatsAppCommunitySlider() {
   const whatsappLink = CGA_WHATSAPP_SUPPORT_URL;
 
+  const handleMobileClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
+    // On iOS Safari / Chrome Android, ensure navigation occurs reliably even if popups are restricted
+    if (typeof window !== 'undefined' && 'ontouchstart' in window) {
+      // Let the native anchor default behavior trigger, or navigate directly if window.open is blocked
+      try {
+        const opened = window.open(whatsappLink, '_blank', 'noopener,noreferrer');
+        if (!opened || opened.closed || typeof opened.closed === 'undefined') {
+          window.location.href = whatsappLink;
+        }
+      } catch {
+        window.location.href = whatsappLink;
+      }
+      e.preventDefault();
+    }
+  };
+
   return (
-    <div className="relative select-none flex justify-end pointer-events-none">
+    <div className="relative select-none flex justify-end pointer-events-auto">
       {/* Floating WhatsApp Button: Fixed, stable anchor hitbox with animated visual inner icon */}
       <a
         href={whatsappLink}
         target="_blank"
         rel="noopener noreferrer"
+        onClick={handleMobileClick}
         className="w-12 h-12 md:w-14 md:h-14 min-w-[48px] min-h-[48px] flex items-center justify-center cursor-pointer relative filter drop-shadow-[0_6px_16px_rgba(37,211,102,0.45)] hover:drop-shadow-[0_8px_22px_rgba(37,211,102,0.6)] active:scale-95 transition-transform touch-manipulation z-10 pointer-events-auto"
         title="Contact WhatsApp Support"
         aria-label="Contact WhatsApp Support"

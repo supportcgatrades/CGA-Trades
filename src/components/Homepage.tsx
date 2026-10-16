@@ -444,7 +444,7 @@ export default function Homepage() {
         });
       });
 
-      toast.success("Successfully checked-in today! +1 TWN Point credited.", { id: toastId });
+      toast.success("Successfully checked-in today! +1 CGA Point credited.", { id: toastId });
       setClaimStatus('claimed');
       
       // Close popup immediately upon authoritative success
@@ -1409,7 +1409,7 @@ export default function Homepage() {
                 </h3>
                 
                 <p className={cn("text-[10px] leading-relaxed max-w-[200px] mx-auto", isLight ? "text-slate-600" : "text-[#8E8A9E]")}>
-                  Acknowledge your daily attendance to receive <span className="text-[#10B981] font-black tracking-wide">+1 TWN Point</span> instantly credited to your active wallet node.
+                  Acknowledge your daily attendance to receive <span className="text-[#10B981] font-black tracking-wide">+1 CGA Point</span> instantly credited to your active wallet node.
                 </p>
               </motion.div>
               
