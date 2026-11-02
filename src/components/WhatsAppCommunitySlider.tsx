@@ -34,20 +34,14 @@ export function WhatsAppIcon({ className = "w-full h-full" }: { className?: stri
 export default function WhatsAppCommunitySlider() {
   const whatsappLink = CGA_WHATSAPP_SUPPORT_URL;
 
-  const handleMobileClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
-    // On iOS Safari / Chrome Android, ensure navigation occurs reliably even if popups are restricted
-    if (typeof window !== 'undefined' && 'ontouchstart' in window) {
-      // Let the native anchor default behavior trigger, or navigate directly if window.open is blocked
-      try {
-        const opened = window.open(whatsappLink, '_blank', 'noopener,noreferrer');
-        if (!opened || opened.closed || typeof opened.closed === 'undefined') {
-          window.location.href = whatsappLink;
-        }
-      } catch {
-        window.location.href = whatsappLink;
-      }
-      e.preventDefault();
-    }
+  const handleClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
+    // Stop propagation so underlying navigation elements never receive this tap
+    e.stopPropagation();
+    // Allow the native anchor tag target="_blank" to open WhatsApp safely without popup blocking
+  };
+
+  const handleTouch = (e: React.TouchEvent<HTMLAnchorElement>) => {
+    e.stopPropagation();
   };
 
   return (
@@ -57,7 +51,9 @@ export default function WhatsAppCommunitySlider() {
         href={whatsappLink}
         target="_blank"
         rel="noopener noreferrer"
-        onClick={handleMobileClick}
+        onClick={handleClick}
+        onTouchStart={handleTouch}
+        onTouchEnd={handleTouch}
         className="w-12 h-12 md:w-14 md:h-14 min-w-[48px] min-h-[48px] flex items-center justify-center cursor-pointer relative filter drop-shadow-[0_6px_16px_rgba(37,211,102,0.45)] hover:drop-shadow-[0_8px_22px_rgba(37,211,102,0.6)] active:scale-95 transition-transform touch-manipulation z-10 pointer-events-auto"
         title="Contact WhatsApp Support"
         aria-label="Contact WhatsApp Support"

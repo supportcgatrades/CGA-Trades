@@ -438,6 +438,7 @@ export default function Dashboard() {
       const now = new Date().toISOString();
       let activatedPlanName = '';
       let activatedAmount = 0;
+      let deductFeeThisActivation = false;
 
       // Ensure stable and race-condition free checking of previous investments
       const q = query(collection(db, 'investments'), where('user_id', '==', user.uid));
@@ -477,39 +478,45 @@ export default function Dashboard() {
         activatedPlanName = invData.plan_name;
         activatedAmount = invData.amount;
 
-        let fee = 50;
         let robotName = 'AI 2.0';
         const planLower = (invData.plan_name || '').toLowerCase();
         if (planLower.includes('premium')) {
-          fee = 200;
           robotName = 'AI 2.5';
         } else if (planLower.includes('elite')) {
-          fee = 500;
           robotName = 'AI 3.0';
-        }
-
-        const currentAvail = userData.available_balance || 0;
-        const currentFund = userData.funding_balance || 0;
-        
-        let newAvail = currentAvail;
-        let newFund = currentFund;
-
-        if (currentAvail >= fee) {
-          newAvail -= fee;
-        } else if (currentFund >= fee) {
-          newFund -= fee;
-        } else {
-          newAvail -= fee;
         }
 
         const updatedUnlocked = Array.from(new Set([...(userData.unlocked_robots || []), robotName]));
 
+        // STRICT ROBOT AI ACTIVATION FEE RULES:
+        // 1. Fee is exactly $10, funded exclusively by the user's existing, verified welcome bonus.
+        // 2. Main deposited funds (available_balance & funding_balance) and investment principal remain 100% intact.
+        // 3. If verified available welcome bonus < 10, stop deduction safely without touching deposits or fabricating funds.
+        // 4. No duplicate charges: Deduct fee once per applicable activation under existing fee rules.
+        const isBonusAlreadyDeducted = Boolean(userData.welcome_bonus_deducted);
+        deductFeeThisActivation = false;
+
         const userUpdates: any = {
           active_robot: robotName,
-          unlocked_robots: updatedUnlocked,
-          available_balance: newAvail,
-          funding_balance: newFund
+          unlocked_robots: updatedUnlocked
         };
+
+        if (!isBonusAlreadyDeducted) {
+          const hasEligibleWelcomeBonus = 
+            Boolean(userData.bonus_credited) || 
+            Boolean(userData.signup_bonus_credited) || 
+            (Number(userData.total_invested) || 0) >= 10;
+
+          if (!hasEligibleWelcomeBonus) {
+            throw new Error("Activation aborted: Insufficient verified Welcome Bonus balance ($10 required). Deposited funds were not touched.");
+          }
+
+          // Deduct exactly $10 funded exclusively by welcome bonus
+          const currentTotalInvested = Number(userData.total_invested) || 10;
+          userUpdates.total_invested = Math.max(0, currentTotalInvested - 10);
+          userUpdates.welcome_bonus_deducted = true;
+          deductFeeThisActivation = true;
+        }
 
         // If this is the first active investment, start the ROI cycle
         if (dynamicActiveCount === 0) {
@@ -538,7 +545,20 @@ export default function Dashboard() {
           description: `${invData.plan_name || 'Node'} Investment Activated`
         });
 
-        // Write 2: Update User document
+        // Write 1c: Robot AI Activation Fee transaction (funded exclusively by Welcome Bonus)
+        if (deductFeeThisActivation) {
+          const feeTxRef = doc(collection(db, 'transactions'));
+          transaction.set(feeTxRef, {
+            user_id: user.uid,
+            type: 'fee',
+            amount: -10.00,
+            status: 'AI Active',
+            description: 'AI Bot Activation',
+            created_at: now
+          });
+        }
+
+        // Write 2: Update User document (available_balance and funding_balance are protected and not deducted)
         transaction.update(userRef, userUpdates);
 
         // Write 3: Referral Bonus (if applicable)
@@ -577,8 +597,8 @@ export default function Dashboard() {
         }
       });
 
-      // Trigger the $15 welcome bonus deduction popup if it was first activation
-      if (isFirstActivation && !profile.welcome_bonus_deducted) {
+      // Trigger the $10 welcome bonus deduction popup if fee was deducted in this activation
+      if (deductFeeThisActivation) {
         setIsWelcomeBonusDeductedPopupOpen({
           planName: activatedPlanName,
           amount: activatedAmount

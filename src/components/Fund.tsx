@@ -191,6 +191,10 @@ export default function Fund() {
       query(collection(db, 'deposits'), where('user_id', '==', user.uid), orderBy('created_at', 'desc')),
       (snap) => {
         currentDeposits = snap.docs.map(doc => ({ id: doc.id, type: 'deposit', ...doc.data() }));
+        // If an approved deposit is detected, close the obsolete transfer-success popup
+        if (snap.docs.some(d => d.data().status === 'approved')) {
+          setShowDepositSuccess(false);
+        }
         updateCombined();
       },
       (err) => console.warn("Deposits sync blocked:", err)
@@ -218,6 +222,10 @@ export default function Fund() {
       query(collection(db, 'investments'), where('user_id', '==', user.uid)),
       (snap) => {
         currentInvestments = snap.docs.map(doc => ({ id: doc.id, type: 'investment', ...doc.data() }));
+        // If an investment is approved/activated, close the deposit success modal
+        if (snap.docs.some(d => d.data().status === 'inactive' || d.data().status === 'active')) {
+          setShowDepositSuccess(false);
+        }
         updateCombined();
       },
       (err) => console.warn("Investments sync blocked:", err)
@@ -234,7 +242,13 @@ export default function Fund() {
       (err) => console.warn("Transfers sync blocked:", err)
     );
 
+    const handleExternalCloseTransferSuccess = () => {
+      setShowDepositSuccess(false);
+    };
+    window.addEventListener('cga_close_transfer_success', handleExternalCloseTransferSuccess);
+
     return () => {
+      window.removeEventListener('cga_close_transfer_success', handleExternalCloseTransferSuccess);
       unsubscribeRate();
       unsubscribeDep();
       unsubscribeMining();

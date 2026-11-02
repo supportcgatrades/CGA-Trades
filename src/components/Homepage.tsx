@@ -246,6 +246,7 @@ export default function Homepage() {
   const [isConfirmingSkip, setIsConfirmingSkip] = useState(false);
   const [isCompounding, setIsCompounding] = useState(false);
   const [showDurationSelector, setShowDurationSelector] = useState(false);
+  const [selectedCompoundingDays, setSelectedCompoundingDays] = useState<number | 'instant'>(30);
 
   const localNow = new Date();
   const todayDateStr = [localNow.getFullYear(), String(localNow.getMonth() + 1).padStart(2, '0'), String(localNow.getDate()).padStart(2, '0')].join('-');
@@ -307,14 +308,14 @@ export default function Homepage() {
     const claimedDates = profile?.withdraw_methods?.claimed_dates || profile?.claimed_dates || [];
     const alreadyClaimed = claimedDates.includes(todayDateStr);
 
-    if (!alreadyClaimed) {
+    if (!alreadyClaimed && !showCheckInPopup) {
       // Show Check-In popup first (slightly delayed for a premium entry flow)
       const timer = setTimeout(() => {
         requestPopup('daily-check-in', () => setShowCheckInPopup(true), () => setShowCheckInPopup(false));
       }, 1000);
       return () => clearTimeout(timer);
     }
-  }, [user, profile, investmentsLoaded, isCompoundPopupEligible, showCompoundPopup, showCompoundSuccess, requestPopup, todayDateStr]);
+  }, [user, profile, investmentsLoaded, isCompoundPopupEligible, showCompoundPopup, showCompoundSuccess, showCheckInPopup, requestPopup, todayDateStr]);
 
   const isClaimingRef = useRef(false);
 
@@ -327,6 +328,8 @@ export default function Homepage() {
     } catch {}
     setShowCheckInPopup(false);
     closePopup('daily-check-in');
+    setClaimStatus('idle');
+    isClaimingRef.current = false;
   };
 
   const handleDailyClaim = async (e?: React.MouseEvent | React.TouchEvent) => {
@@ -446,6 +449,11 @@ export default function Homepage() {
 
       toast.success("Successfully checked-in today! +1 CGA Point credited.", { id: toastId });
       setClaimStatus('claimed');
+      try {
+        if (typeof window !== 'undefined') {
+          sessionStorage.setItem('cga_daily_claim_session_dismissed', currentTodayDateStr);
+        }
+      } catch {}
       
       // Close popup immediately upon authoritative success
       setTimeout(() => {
@@ -456,8 +464,18 @@ export default function Homepage() {
     } catch (err: any) {
       console.error("Daily claim error:", err);
       setClaimStatus('idle');
-      toast.error(err.message || "Failed to process check-in. Please try again.", { id: toastId });
-      // Keep popup open and claimStatus idle so user is able to try again
+      if (err?.message?.includes("Already signed attendance")) {
+        toast.info("Attendance already confirmed for today.", { id: toastId });
+        try {
+          if (typeof window !== 'undefined') {
+            sessionStorage.setItem('cga_daily_claim_session_dismissed', todayDateStr);
+          }
+        } catch {}
+        setShowCheckInPopup(false);
+        closePopup('daily-check-in');
+      } else {
+        toast.error(err.message || "Failed to process check-in. Please try again.", { id: toastId });
+      }
     } finally {
       isClaimingRef.current = false;
     }
@@ -649,7 +667,7 @@ export default function Homepage() {
 
   const handleCompoundClick = async (e?: React.MouseEvent | React.TouchEvent) => {
     if (e) e.stopPropagation();
-    if (!user || isCompoundingRef.current) return;
+    if (!user || isCompoundingRef.current || isCompounding) return;
 
     if (isAutoCompound) {
       handleDismissCompound();
@@ -658,17 +676,123 @@ export default function Homepage() {
 
     if (typeof navigator !== 'undefined' && !navigator.onLine) {
       toast.error("Network unavailable. Please reconnect and try again.");
-      handleDismissCompound();
       return;
     }
 
-    // Dismiss popup promptly so user is never trapped
-    handleDismissCompound();
-
     isCompoundingRef.current = true;
     setIsCompounding(true);
-    const toastId = toast.loading("Processing compounding transfer to Assets...");
 
+    // If an automated duration schedule is selected (e.g. 15, 30, 90, 180, 365 Days)
+    if (typeof selectedCompoundingDays === 'number') {
+      const days = selectedCompoundingDays;
+      const toastId = toast.loading(`Activating ${days}-day compounding protocol...`);
+      try {
+        const startDate = new Date();
+        const endDate = new Date(startDate.getTime() + days * 86400000);
+        const userRef = doc(db, 'users', user.uid);
+        const nowIso = new Date().toISOString();
+
+        await runTransaction(db, async (transaction) => {
+          const userSnap = await transaction.get(userRef);
+          if (!userSnap.exists()) {
+            throw new Error("User profile not found.");
+          }
+
+          const userData = userSnap.data();
+          const curAvailable = userData.available_balance || 0;
+          const curReward = userData.withdraw_methods?.reward_dollar_balance ?? userData.reward_dollar_balance ?? 0;
+
+          const availableDeduction = curAvailable >= 5 ? curAvailable : 0;
+          const rewardDeduction = curReward >= 5 ? curReward : 0;
+          const totalToCompound = availableDeduction + rewardDeduction;
+
+          const updates: any = {
+            auto_compound_enabled: true,
+            auto_compound_duration: days,
+            auto_compound_start_date: startDate.toISOString(),
+            auto_compound_end_date: endDate.toISOString(),
+            auto_compound_expired: false
+          };
+
+          if (totalToCompound >= 5) {
+            if (availableDeduction > 0) {
+              updates.available_balance = increment(-availableDeduction);
+            }
+            if (rewardDeduction > 0) {
+              const existingWithdrawMethods = userData.withdraw_methods || {};
+              const oldReward = existingWithdrawMethods.reward_dollar_balance ?? userData.reward_dollar_balance ?? 0;
+              updates.withdraw_methods = {
+                ...existingWithdrawMethods,
+                reward_dollar_balance: oldReward - rewardDeduction
+              };
+            }
+            updates.total_invested = increment(totalToCompound);
+            const existingWithdrawMethodsUpdate = updates.withdraw_methods || userData.withdraw_methods || {};
+            const existingCompounds = existingWithdrawMethodsUpdate.compounded_amounts || userData.compounded_amounts || [];
+            updates.withdraw_methods = {
+              ...existingWithdrawMethodsUpdate,
+              compounded_amounts: [...existingCompounds, totalToCompound],
+              last_compound_popup_date: todayDateStr
+            };
+
+            if (userData.compounded_amounts) {
+              updates.compounded_amounts = [...(userData.compounded_amounts || []), totalToCompound];
+            }
+          }
+
+          const notifRef = doc(collection(db, 'notifications'));
+          transaction.set(notifRef, {
+            user_id: user.uid,
+            type: 'success',
+            title: 'Automated Compounding Active',
+            message: `Successfully set up ${days}-day automated compounding protocol${totalToCompound >= 5 ? ` and reinvested $${totalToCompound.toFixed(2)}` : ''}.`,
+            read: false,
+            created_at: nowIso
+          });
+
+          transaction.update(userRef, updates);
+
+          if (availableDeduction > 0) {
+            const txRef1 = doc(collection(db, 'transactions'));
+            transaction.set(txRef1, {
+              user_id: user.uid,
+              type: 'compound',
+              type_detail: 'compound_available_balance',
+              amount: availableDeduction,
+              status: 'approved',
+              created_at: nowIso,
+              description: `Automated Compounding (${days} Days) - Available Balance reinvestment`
+            });
+          }
+          if (rewardDeduction > 0) {
+            const txRef2 = doc(collection(db, 'transactions'));
+            transaction.set(txRef2, {
+              user_id: user.uid,
+              type: 'compound',
+              type_detail: 'compound_reward_balance',
+              amount: rewardDeduction,
+              status: 'approved',
+              created_at: nowIso,
+              description: `Automated Compounding (${days} Days) - Reward Balance reinvestment`
+            });
+          }
+        });
+
+        localStorage.setItem(`last_compound_popup_date_${user.uid}`, todayDateStr);
+        toast.success(`Automated compounding protocol (${days} days) active!`, { id: toastId });
+        handleDismissCompound();
+      } catch (err: any) {
+        console.error("Compounding schedule setup failed:", err);
+        toast.error(err.message || "Failed to activate compounding schedule.", { id: toastId });
+      } finally {
+        isCompoundingRef.current = false;
+        setIsCompounding(false);
+      }
+      return;
+    }
+
+    // Direct Instant Reinvestment to Assets
+    const toastId = toast.loading("Processing compounding transfer to Assets...");
     try {
       const userRef = doc(db, 'users', user.uid);
       const nowIso = new Date().toISOString();
@@ -788,6 +912,8 @@ export default function Homepage() {
         true,
         "🔁"
       );
+
+      handleDismissCompound();
     } catch (err: any) {
       console.error("Compounding transfer failed:", err);
       toast.error(err.message || "Failed to process compounding transfer.", { id: toastId });
@@ -802,12 +928,8 @@ export default function Homepage() {
 
     if (typeof navigator !== 'undefined' && !navigator.onLine) {
       toast.error("Network unavailable. Please reconnect and try again.");
-      handleDismissCompound();
       return;
     }
-
-    // Dismiss popup promptly so user is never trapped
-    handleDismissCompound();
 
     isCompoundingRef.current = true;
     setIsCompounding(true);
@@ -851,6 +973,7 @@ export default function Homepage() {
 
       // Automatically execute compounding for any currently eligible funds
       await executeAutoCompoundingIfEligible();
+      handleDismissCompound();
     } catch (err: any) {
       console.error("Compounding schedule setup failed:", err);
       toast.error(err.message || "Failed to activate compounding schedule.", { id: toastId });
@@ -1415,6 +1538,7 @@ export default function Homepage() {
               
               {/* Standalone centered CLAIM button separated below */}
               <motion.button
+                type="button"
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: 10 }}
@@ -1425,7 +1549,7 @@ export default function Homepage() {
                 }}
                 disabled={claimStatus !== 'idle'}
                 className={cn(
-                  "px-8 py-3 rounded-xl text-[10px] font-black uppercase tracking-[0.25em] text-white shadow-lg transition-all italic duration-200 cursor-pointer w-auto min-w-[150px] text-center touch-manipulation pointer-events-auto",
+                  "px-8 py-3 rounded-xl text-[10px] font-black uppercase tracking-[0.25em] text-white shadow-lg transition-all italic duration-200 cursor-pointer w-auto min-w-[150px] text-center touch-manipulation select-none pointer-events-auto",
                   claimStatus === 'idle' && "bg-gradient-to-r from-[#10B981] to-[#059669] hover:brightness-110 active:scale-95 shadow-[0_8px_20px_rgba(16,185,129,0.2)]",
                   claimStatus === 'claiming' && (isLight ? "bg-slate-200 text-slate-500 cursor-wait" : "bg-[#1F1D2B]/50 border border-white/5 opacity-80 cursor-wait"),
                   claimStatus === 'claimed' && "bg-emerald-500/25 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300 shadow-[0_4px_15px_rgba(16,185,129,0.15)] italic font-black uppercase"
@@ -1582,7 +1706,7 @@ export default function Homepage() {
               {/* Flex column container keeping Card at top and buttons below, matching Daily Reward layout */}
               <div className={cn(
                 "flex flex-col items-center gap-5 w-full relative z-10 select-none transition-all duration-300",
-                showDurationSelector && !isAutoCompoundActive ? "max-w-[340px]" : "max-w-[260px]"
+                showDurationSelector && !isAutoCompoundActive ? "max-w-[340px]" : "max-w-[300px] sm:max-w-[320px]"
               )}>
                 
                 <motion.div 
@@ -1719,19 +1843,58 @@ export default function Homepage() {
                     <div>
                       {/* Visual Icon Badge */}
                       <div className={cn(
-                        "mb-5 inline-flex w-12 h-12 rounded-xl items-center justify-center text-[#10B981] shadow-inner",
+                        "mb-3.5 inline-flex w-12 h-12 rounded-xl items-center justify-center text-[#10B981] shadow-inner",
                         isLight ? "bg-emerald-50 border border-emerald-200" : "bg-white/5 border border-white/10"
                       )}>
                         <TrendingUp size={22} className="animate-bounce" />
                       </div>
                       
-                      <h3 className={cn("text-sm font-black italic uppercase tracking-wider mb-3 font-sans", isLight ? "text-slate-900" : "text-white")}>
+                      <h3 className={cn("text-sm font-black italic uppercase tracking-wider mb-2 font-sans", isLight ? "text-slate-900" : "text-white")}>
                         ROI/Profit Compounding
                       </h3>
                       
-                      <p className={cn("text-[10px] leading-relaxed max-w-[200px] mx-auto", isLight ? "text-slate-600" : "text-[#8E8A9E]")}>
-                        Increase your earning potential by reinvesting your accumulated earnings into your active investment.
+                      <p className={cn("text-[10px] leading-relaxed max-w-[220px] mx-auto", isLight ? "text-slate-600" : "text-[#8E8A9E]")}>
+                        Reinvest your accumulated earnings into your active investment to compound daily yield.
                       </p>
+
+                      {/* Compounding Time Frame Selector */}
+                      <div className="mt-4 mb-1">
+                        <p className={cn("text-[8px] font-black uppercase tracking-wider mb-2 text-center", isLight ? "text-slate-500" : "text-white/50")}>
+                          Select Time Frame
+                        </p>
+                        <div className="grid grid-cols-3 gap-1.5 w-full">
+                          {[
+                            { id: 'instant' as const, label: 'Instant' },
+                            { id: 15, label: '15 Days' },
+                            { id: 30, label: '30 Days' },
+                            { id: 90, label: '90 Days' },
+                            { id: 180, label: '180 Days' },
+                            { id: 365, label: '365 Days' }
+                          ].map((tf) => {
+                            const isSelected = selectedCompoundingDays === tf.id;
+                            return (
+                              <button
+                                key={String(tf.id)}
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSelectedCompoundingDays(tf.id);
+                                }}
+                                className={cn(
+                                  "py-1.5 px-1 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer touch-manipulation select-none border",
+                                  isSelected
+                                    ? "bg-[#10B981] text-white border-[#10B981] shadow-md shadow-[#10B981]/25 scale-105"
+                                    : isLight
+                                      ? "bg-slate-50 text-slate-700 border-slate-200 hover:border-slate-300"
+                                      : "bg-white/5 text-white/70 border-white/10 hover:border-white/20"
+                                )}
+                              >
+                                {tf.label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
                     </div>
                   )}
                 </motion.div>
@@ -1747,33 +1910,37 @@ export default function Homepage() {
                   {isConfirmingSkip ? (
                     <>
                       <button
+                        type="button"
                         onClick={handleSkipConfirmYes}
                         className={cn(
-                          "flex-1 py-3 rounded-xl text-[10px] font-black uppercase tracking-[0.25em] text-red-500 transition-all duration-200 cursor-pointer italic text-center",
+                          "flex-1 py-3 rounded-xl text-[10px] font-black uppercase tracking-[0.25em] text-red-500 transition-all duration-200 cursor-pointer italic text-center touch-manipulation select-none",
                           isLight ? "bg-red-50 hover:bg-red-100 border border-red-200" : "bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 hover:border-red-500/50 text-red-400"
                         )}
                       >
                         Yes
                       </button>
                       <button
+                        type="button"
                         onClick={handleSkipConfirmNo}
-                        className="flex-1 py-3 bg-gradient-to-r from-[#10B981] to-[#059669] hover:brightness-110 active:scale-95 shadow-[0_8px_20px_rgba(16,185,129,0.2)] text-white rounded-xl text-[10px] font-black uppercase tracking-[0.25em] transition-all duration-200 cursor-pointer italic text-center shadow-lg"
+                        className="flex-1 py-3 bg-gradient-to-r from-[#10B981] to-[#059669] hover:brightness-110 active:scale-95 shadow-[0_8px_20px_rgba(16,185,129,0.2)] text-white rounded-xl text-[10px] font-black uppercase tracking-[0.25em] transition-all duration-200 cursor-pointer italic text-center shadow-lg touch-manipulation select-none"
                       >
                         No
                       </button>
                     </>
                   ) : isAutoCompoundActive ? (
                     <button
+                      type="button"
                       onClick={() => handleDismissCompound()}
-                      className="w-full py-3 bg-gradient-to-r from-[#10B981] to-[#059669] hover:brightness-110 active:scale-95 shadow-[0_8px_20px_rgba(16,185,129,0.2)] text-white rounded-xl text-[10px] font-black uppercase tracking-[0.25em] transition-all duration-200 cursor-pointer italic text-center shadow-lg touch-manipulation"
+                      className="w-full py-3 bg-gradient-to-r from-[#10B981] to-[#059669] hover:brightness-110 active:scale-95 shadow-[0_8px_20px_rgba(16,185,129,0.2)] text-white rounded-xl text-[10px] font-black uppercase tracking-[0.25em] transition-all duration-200 cursor-pointer italic text-center shadow-lg touch-manipulation select-none"
                     >
                       Got It
                     </button>
                   ) : showDurationSelector ? (
                     <button
+                      type="button"
                       onClick={handleDismissCompound}
                       className={cn(
-                        "w-full py-3 rounded-xl text-[10px] font-black uppercase tracking-[0.25em] transition-all duration-200 cursor-pointer italic text-center touch-manipulation",
+                        "w-full py-3 rounded-xl text-[10px] font-black uppercase tracking-[0.25em] transition-all duration-200 cursor-pointer italic text-center touch-manipulation select-none",
                         isLight ? "bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200" : "bg-white/5 hover:bg-white/10 border border-white/10 text-white"
                       )}
                     >
@@ -1782,19 +1949,27 @@ export default function Homepage() {
                   ) : (
                     <>
                       <button
-                        onClick={handleCancelClick}
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleCancelClick(e);
+                        }}
                         className={cn(
-                          "flex-1 py-3 rounded-xl text-[10px] font-black uppercase tracking-[0.25em] transition-all duration-200 cursor-pointer italic text-center touch-manipulation",
+                          "flex-1 py-3 rounded-xl text-[10px] font-black uppercase tracking-[0.25em] transition-all duration-200 cursor-pointer italic text-center touch-manipulation select-none",
                           isLight ? "bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200" : "bg-white/5 hover:bg-white/10 border border-white/10 text-white"
                         )}
                       >
                         Cancel
                       </button>
                       <button
-                        onClick={handleCompoundClick}
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleCompoundClick(e);
+                        }}
                         disabled={isCompounding}
                         className={cn(
-                          "flex-1 py-3 rounded-xl text-[10px] font-black uppercase tracking-[0.25em] transition-all duration-200 cursor-pointer italic text-center shadow-lg touch-manipulation",
+                          "flex-1 py-3 rounded-xl text-[10px] font-black uppercase tracking-[0.25em] transition-all duration-200 cursor-pointer italic text-center shadow-lg touch-manipulation select-none",
                           isCompounding
                             ? (isLight ? "bg-slate-200 border border-slate-300 text-slate-500 cursor-wait" : "bg-[#1F1D2B]/50 border border-white/5 opacity-80 cursor-wait text-gray-400")
                             : "bg-gradient-to-r from-[#10B981] to-[#059669] hover:brightness-110 active:scale-95 shadow-[0_8px_20px_rgba(16,185,129,0.2)] text-white"

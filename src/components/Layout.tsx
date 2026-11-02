@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { 
   Menu, 
   X, 
@@ -81,9 +81,13 @@ function SidebarItem({ icon, label, active, onClick, children, isExpanded }: Sid
   return (
     <div className="flex flex-col" style={{ transform: 'translateZ(0)' }}>
       <button 
-        onClick={onClick}
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onClick?.();
+        }}
         className={cn(
-          "flex items-center justify-between w-full p-4 lg:p-3 rounded-xl transition-all duration-200 group text-left",
+          "flex items-center justify-between w-full p-4 lg:p-3 rounded-xl transition-all duration-200 group text-left cursor-pointer touch-manipulation select-none pointer-events-auto",
           active 
             ? "bg-primary text-white" 
             : isDark 
@@ -125,9 +129,13 @@ function SidebarSubItem({ label, active, onClick }: { label: string, active?: bo
   const isDark = !document.documentElement.classList.contains('light');
   return (
     <button 
-      onClick={onClick}
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick?.();
+      }}
       className={cn(
-        "flex items-center gap-3 w-full p-3 lg:p-2 rounded-lg text-xs font-medium tracking-wide transition-all",
+        "flex items-center gap-3 w-full p-3 lg:p-2 rounded-lg text-xs font-medium tracking-wide transition-all cursor-pointer touch-manipulation select-none pointer-events-auto",
         active 
           ? "text-primary font-bold" 
           : isDark 
@@ -157,10 +165,15 @@ function BottomNavItem({ icon, label, active, onClick, gradientId, glowColor, is
   // Brand green color constant
   const activeGreen = "#009e42";
 
+  const handleClick = (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.stopPropagation();
+    onClick?.();
+  };
+
   return (
     <button 
       type="button"
-      onClick={onClick}
+      onClick={handleClick}
       className="relative flex flex-col items-center justify-center flex-1 h-full min-h-[48px] py-1 z-10 transition-all duration-200 cursor-pointer touch-manipulation select-none active:scale-95 pointer-events-auto"
       aria-label={label}
     >
@@ -265,8 +278,33 @@ export default function Layout() {
   } | null>(null);
   const [isPremiumSuccessOpen, setIsPremiumSuccessOpen] = useState(false);
 
+  // Authoritative helper to dismiss and close the transfer-success popup
+  const closeTransferSuccessPopup = useCallback(() => {
+    const storageKey = 'premium_pending_countdown';
+    const stored = localStorage.getItem(storageKey);
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        if (parsed) {
+          parsed.dismissed = true;
+          localStorage.setItem(storageKey, JSON.stringify(parsed));
+        }
+      } catch (e) {
+        localStorage.removeItem(storageKey);
+      }
+    }
+    setIsPremiumSuccessOpen(false);
+    setPremiumSuccessData(null);
+    window.dispatchEvent(new CustomEvent('cga_close_transfer_success'));
+  }, []);
+
   useEffect(() => {
     const checkCountdown = () => {
+      // Mutual exclusion: if activation popup is visible, do not open transfer success modal
+      if (approvedNotificationPopup) {
+        setIsPremiumSuccessOpen(false);
+        return;
+      }
       const stored = localStorage.getItem('premium_pending_countdown');
       if (stored) {
         try {
@@ -294,15 +332,22 @@ export default function Layout() {
     checkCountdown();
     const interval = setInterval(checkCountdown, 1000);
 
+    const handleExternalClose = () => {
+      setIsPremiumSuccessOpen(false);
+      setPremiumSuccessData(null);
+    };
+
     window.addEventListener('storage', checkCountdown);
     window.addEventListener('premium_success_trigger', checkCountdown);
+    window.addEventListener('cga_close_transfer_success', handleExternalClose);
 
     return () => {
       clearInterval(interval);
       window.removeEventListener('storage', checkCountdown);
       window.removeEventListener('premium_success_trigger', checkCountdown);
+      window.removeEventListener('cga_close_transfer_success', handleExternalClose);
     };
-  }, []);
+  }, [approvedNotificationPopup]);
 
   useEffect(() => {
     setIsMobileNavExpanded(false);
@@ -319,23 +364,42 @@ export default function Layout() {
     })()
   );
 
-  // Listen for newly approved investments to show activation popups
+  // Authoritative real-time listener for approved investments and deposits
   useEffect(() => {
     if (!user) return;
     
-    // Listen to investments of status: 'inactive'
-    const qApproved = query(
+    // Listen to investments of the user
+    const qInvs = query(
       collection(db, 'investments'),
-      where('user_id', '==', user.uid),
-      where('status', '==', 'inactive')
+      where('user_id', '==', user.uid)
     );
     
-    const unsubscribe = onSnapshot(qApproved, (snapshot) => {
+    const unsubscribeInvs = onSnapshot(qInvs, (snapshot) => {
       snapshot.docChanges().forEach((change) => {
-        if (change.type === 'added' || change.type === 'modified') {
-          const data = change.doc.data();
-          const invId = change.doc.id;
-          
+        const data = change.doc.data();
+        const invId = change.doc.id;
+        
+        // 1. If investment is already active, user already activated it
+        if (data.status === 'active') {
+          // If activation popup is showing for this investment, close it immediately
+          if (approvedNotificationPopup?.id === invId) {
+            setApprovedNotificationPopup(null);
+          }
+          dismissedAlertsRef.current.add(invId);
+          try {
+            sessionStorage.setItem('dismissed_approved_notifications', JSON.stringify(Array.from(dismissedAlertsRef.current)));
+          } catch (e) {}
+
+          // Obsolete transfer success popup must close as authoritative state is active
+          closeTransferSuccessPopup();
+          return;
+        }
+
+        // 2. If investment is 'inactive' (approved by admin/cipher and ready for activation)
+        if (data.status === 'inactive') {
+          // Authoritative approval event: ALWAYS close the obsolete transfer-success popup first
+          closeTransferSuccessPopup();
+
           // DO NOT display the 'Activate Investment' popup while users remain on the payment processing screen
           if (isViewingProcessingScreen) {
             return;
@@ -363,22 +427,43 @@ export default function Layout() {
             }
           }
           
-          // Show the premium approved in-app popup for this approved investment!
+          // Show the premium approved in-app popup ONLY after transfer-success popup has fully closed
           if (setApprovedNotificationPopup && (!approvedNotificationPopup || approvedNotificationPopup.id !== invId)) {
-            setApprovedNotificationPopup({
-              id: invId,
-              planName: data.plan_name || 'Node Plan',
-              amount: data.amount || 0
-            });
+            setTimeout(() => {
+              setApprovedNotificationPopup({
+                id: invId,
+                planName: data.plan_name || 'Node Plan',
+                amount: data.amount || 0
+              });
+            }, 100);
           }
         }
       });
     }, (error) => {
-      console.warn("Approved investment listener blocked:", error.message);
+      console.warn("Investments snapshot listener error:", error.message);
+    });
+
+    // Listen to approved deposits to automatically close transfer success popup for deposits
+    const qApprovedDeps = query(
+      collection(db, 'deposits'),
+      where('user_id', '==', user.uid),
+      where('status', '==', 'approved')
+    );
+
+    const unsubscribeDeps = onSnapshot(qApprovedDeps, (snapshot) => {
+      if (!snapshot.empty) {
+        // Authoritative deposit approval confirmed: close obsolete transfer-success popup
+        closeTransferSuccessPopup();
+      }
+    }, (error) => {
+      console.warn("Deposits snapshot listener error:", error.message);
     });
     
-    return () => unsubscribe();
-  }, [user, isViewingProcessingScreen, approvedNotificationPopup, setApprovedNotificationPopup]);
+    return () => {
+      unsubscribeInvs();
+      unsubscribeDeps();
+    };
+  }, [user, isViewingProcessingScreen, approvedNotificationPopup, setApprovedNotificationPopup, closeTransferSuccessPopup]);
   const navigate = useNavigate();
   const { theme, effectiveTheme, isDark, setTheme, toggleTheme } = useTheme();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -448,21 +533,30 @@ export default function Layout() {
       await runTransaction(db, async (transaction) => {
         const uSnap = await transaction.get(userRef);
         if (!uSnap.exists()) throw new Error("Awaiting user profile sync.");
+        const uData = uSnap.data();
 
-        transaction.update(userRef, {
-          total_invested: increment(-10),
-          welcome_bonus_deducted: true
-        });
+        // Idempotent: only deduct if not already deducted in activateInvestment
+        if (!uData.welcome_bonus_deducted) {
+          const hasBonus = Boolean(uData.bonus_credited) || Boolean(uData.signup_bonus_credited) || (Number(uData.total_invested) || 0) >= 10;
+          if (!hasBonus) {
+            throw new Error("Insufficient verified welcome bonus balance.");
+          }
 
-        const txRef = doc(collection(db, 'transactions'));
-        transaction.set(txRef, {
-          user_id: user.uid,
-          type: 'fee',
-          amount: -10.00,
-          status: 'AI Active',
-          description: 'AI Bot Activation',
-          created_at: now
-        });
+          transaction.update(userRef, {
+            total_invested: Math.max(0, (Number(uData.total_invested) || 10) - 10),
+            welcome_bonus_deducted: true
+          });
+
+          const txRef = doc(collection(db, 'transactions'));
+          transaction.set(txRef, {
+            user_id: user.uid,
+            type: 'fee',
+            amount: -10.00,
+            status: 'AI Active',
+            description: 'AI Bot Activation',
+            created_at: now
+          });
+        }
       });
 
       setIsWelcomeBonusDeductedPopupOpen(null);
@@ -729,7 +823,15 @@ export default function Layout() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  const activeTab = location.pathname.substring(1) || 'dashboard';
+  const activeTab = (() => {
+    const path = location.pathname;
+    if (path === '/' || path === '/home') return 'home';
+    if (path === '/dashboard') return 'dashboard';
+    if (path.startsWith('/fund')) return 'fund';
+    if (path.startsWith('/invest')) return 'invest';
+    if (path === '/profile') return 'profile';
+    return path.substring(1) || 'home';
+  })();
   const isHomePage = location.pathname === '/home' || location.pathname === '/';
   const shouldShowMobileNav = ['/', '/home', '/dashboard', '/fund', '/invest', '/profile'].includes(location.pathname) || location.pathname.startsWith('/fund');
   const showFooterPaths = ['/home', '/', '/markets', '/nodes', '/pools', '/neural-analytics', '/terms', '/privacy', '/cookies', '/aml'];
@@ -1272,8 +1374,12 @@ export default function Layout() {
                   <div className="p-2">
                     <div className="flex gap-2 p-3">
                       <button 
-                        onClick={() => handleNavigation('/dashboard')}
-                        className="flex-1 flex flex-col items-center justify-center gap-2 p-4 rounded-[20px] text-[9px] font-black uppercase tracking-widest text-slate-700 hover:text-slate-900 dark:text-white/70 dark:hover:text-white bg-gradient-to-br from-indigo-500/10 to-purple-500/10 hover:from-indigo-500/20 hover:to-purple-500/20 transition-all border border-slate-200 dark:border-white/5 hover:border-purple-500/30 shadow-lg hover:shadow-purple-500/10 group cursor-pointer"
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleNavigation('/dashboard');
+                        }}
+                        className="flex-1 flex flex-col items-center justify-center gap-2 p-4 rounded-[20px] text-[9px] font-black uppercase tracking-widest text-slate-700 hover:text-slate-900 dark:text-white/70 dark:hover:text-white bg-gradient-to-br from-indigo-500/10 to-purple-500/10 hover:from-indigo-500/20 hover:to-purple-500/20 transition-all border border-slate-200 dark:border-white/5 hover:border-purple-500/30 shadow-lg hover:shadow-purple-500/10 group cursor-pointer touch-manipulation select-none"
                       >
                         <div className="p-2 rounded-lg bg-indigo-500/10 group-hover:scale-110 transition-transform">
                           <LayoutDashboard size={18} className="text-indigo-500 dark:text-indigo-400" />
@@ -1282,11 +1388,13 @@ export default function Layout() {
                       </button>
                       {isBeta && (
                         <button 
-                          onClick={() => {
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
                             setIsProfileOpen(false);
                             openTransferModal();
                           }}
-                          className="flex-1 flex flex-col items-center justify-center gap-2 p-4 rounded-[20px] text-[9px] font-black uppercase tracking-widest text-slate-700 hover:text-slate-900 dark:text-white/70 dark:hover:text-white bg-gradient-to-br from-purple-500/10 to-pink-500/10 hover:from-purple-500/20 hover:to-pink-500/20 transition-all border border-slate-200 dark:border-white/5 hover:border-pink-500/30 shadow-lg hover:shadow-pink-500/10 group cursor-pointer"
+                          className="flex-1 flex flex-col items-center justify-center gap-2 p-4 rounded-[20px] text-[9px] font-black uppercase tracking-widest text-slate-700 hover:text-slate-900 dark:text-white/70 dark:hover:text-white bg-gradient-to-br from-purple-500/10 to-pink-500/10 hover:from-purple-500/20 hover:to-pink-500/20 transition-all border border-slate-200 dark:border-white/5 hover:border-pink-500/30 shadow-lg hover:shadow-pink-500/10 group cursor-pointer touch-manipulation select-none"
                         >
                           <div className="p-2 rounded-lg bg-purple-500/10 group-hover:scale-110 transition-transform">
                             <ArrowRightLeft size={18} className="text-purple-500 dark:text-purple-400" />
@@ -1297,8 +1405,12 @@ export default function Layout() {
                     </div>
                     
                     <button 
-                      onClick={() => handleNavigation('/profile')}
-                      className="flex items-center gap-3 w-full p-3 rounded-lg text-xs font-bold uppercase tracking-widest text-slate-600 hover:text-slate-900 hover:bg-slate-100 dark:text-aura-muted dark:hover:text-aura-lime dark:hover:bg-white/5 transition-all cursor-pointer"
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleNavigation('/profile');
+                      }}
+                      className="flex items-center gap-3 w-full p-3 rounded-lg text-xs font-bold uppercase tracking-widest text-slate-600 hover:text-slate-900 hover:bg-slate-100 dark:text-aura-muted dark:hover:text-aura-lime dark:hover:bg-white/5 transition-all cursor-pointer touch-manipulation select-none"
                     >
                       <User size={14} />
                       {t('profile')}
@@ -1675,14 +1787,10 @@ export default function Layout() {
               onClick={() => setIsSidebarOpen(false)} 
             />
             <motion.div 
-              initial={{ scale: 0, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0, opacity: 0 }}
-              transition={{ type: "spring", damping: 25, stiffness: 200 }}
-              style={{ 
-                transformOrigin: "24px 24px",
-                willChange: 'transform, opacity' 
-              }}
+              initial={{ x: "-100%" }}
+              animate={{ x: 0 }}
+              exit={{ x: "-100%" }}
+              transition={{ type: "tween", ease: "easeInOut", duration: 0.25 }}
               className={cn(
                 "fixed inset-y-0 left-0 w-80 z-[201] shadow-2xl flex flex-col",
                 isDark ? "bg-aura-black border-r border-white/10" : "bg-white border-r border-aura-line"
@@ -2643,11 +2751,12 @@ export default function Layout() {
         )}
       </AnimatePresence>
 
+      {/* Global Transfer Success Modal with countdown - strictly mutually exclusive with activation popups */}
       <AnimatePresence>
-        {isPremiumSuccessOpen && premiumSuccessData && (
+        {isPremiumSuccessOpen && premiumSuccessData && !approvedNotificationPopup && (
           <PremiumTransferSuccessModal
-            isOpen={isPremiumSuccessOpen}
-            onClose={() => setIsPremiumSuccessOpen(false)}
+            isOpen={isPremiumSuccessOpen && !approvedNotificationPopup}
+            onClose={closeTransferSuccessPopup}
             amount={premiumSuccessData.amount}
             type={premiumSuccessData.type}
             planName={premiumSuccessData.planName}
