@@ -79,7 +79,7 @@ interface SidebarItemProps {
 function SidebarItem({ icon, label, active, onClick, children, isExpanded }: SidebarItemProps) {
   const isDark = !document.documentElement.classList.contains('light');
   return (
-    <div className="flex flex-col" style={{ transform: 'translateZ(0)' }}>
+    <div className="flex flex-col">
       <button 
         type="button"
         onClick={(e) => {
@@ -174,7 +174,7 @@ function BottomNavItem({ icon, label, active, onClick, gradientId, glowColor, is
     <button 
       type="button"
       onClick={handleClick}
-      className="relative flex flex-col items-center justify-center flex-1 h-full min-h-[48px] py-1 z-10 transition-all duration-200 cursor-pointer touch-manipulation select-none active:scale-95 pointer-events-auto"
+      className="relative flex flex-col items-center justify-center flex-1 h-full min-h-[48px] py-1 z-10 transition-colors duration-200 cursor-pointer touch-manipulation select-none pointer-events-auto"
       aria-label={label}
     >
       {/* Icon Wrapper */}
@@ -467,6 +467,18 @@ export default function Layout() {
   const navigate = useNavigate();
   const { theme, effectiveTheme, isDark, setTheme, toggleTheme } = useTheme();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+
+  // Prevent background page scrolling and gesture chaining when mobile sidebar is open
+  useEffect(() => {
+    if (isSidebarOpen) {
+      const prevOverflow = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+      return () => {
+        document.body.style.overflow = prevOverflow;
+      };
+    }
+  }, [isSidebarOpen]);
+
   const [expandedSection, setExpandedSection] = useState<string | null>(null);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isLanguageOpen, setIsLanguageOpen] = useState(false);
@@ -1446,10 +1458,12 @@ export default function Layout() {
       <AnimatePresence>
         {shouldShowMobileNav && (
           <motion.nav 
-            initial={{ opacity: 0, y: 30, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 30, scale: 0.95 }}
-            transition={{ type: "spring", stiffness: 350, damping: 25 }}
+            key="mobile-bottom-nav"
+            id="mobile-bottom-nav"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
             className={cn(
               "lg:hidden fixed bottom-0 left-0 right-0 w-full h-[calc(4rem+env(safe-area-inset-bottom,0px))] pb-[env(safe-area-inset-bottom,0px)] z-[500] flex items-center px-2 sm:px-4 backdrop-blur-3xl border-t transition-all duration-300 pointer-events-auto touch-manipulation",
               isDark 
@@ -1778,15 +1792,18 @@ export default function Layout() {
       {/* --- SIDEBAR DRAWER --- */}
       <AnimatePresence>
         {isSidebarOpen && (
-          <>
+          <React.Fragment key="sidebar-drawer-container">
             <motion.div 
+              key="sidebar-backdrop"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[200]" 
+              className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[200] touch-none" 
               onClick={() => setIsSidebarOpen(false)} 
             />
             <motion.div 
+              key="sidebar-drawer-content"
+              id="sidebar-drawer"
               initial={{ x: "-100%" }}
               animate={{ x: 0 }}
               exit={{ x: "-100%" }}
@@ -1796,7 +1813,7 @@ export default function Layout() {
                 isDark ? "bg-aura-black border-r border-white/10" : "bg-white border-r border-aura-line"
               )}
             >
-              <div className="p-8 pb-4">
+              <div className="p-8 pb-4 flex-shrink-0">
                 <div className="flex justify-between items-center mb-8">
                   <div className="flex items-center">
                     <img src="https://i.imgur.com/nRbbYnS.png" alt="CGA Logo" className="h-10 w-auto object-contain" />
@@ -1810,7 +1827,15 @@ export default function Layout() {
                 </div>
               </div>
               
-              <div className="flex-1 overflow-y-auto lg:overflow-hidden px-4 py-4 scrollbar-hide space-y-1">
+              <div 
+                id="sidebar-scroll-container"
+                data-scroll-container="true"
+                onTouchStart={(e) => e.stopPropagation()}
+                onTouchMove={(e) => e.stopPropagation()}
+                onTouchEnd={(e) => e.stopPropagation()}
+                className="flex-1 overflow-y-auto overscroll-contain touch-pan-y px-4 py-4 scrollbar-hide space-y-1"
+                style={{ WebkitOverflowScrolling: 'touch' }}
+              >
                 <SidebarItem 
                   icon={<Home size={20} />} 
                   label={t('home')} 
@@ -1949,7 +1974,7 @@ export default function Layout() {
                 />
               </div>
             </motion.div>
-          </>
+          </React.Fragment>
         )}
       </AnimatePresence>
 
@@ -2657,16 +2682,31 @@ export default function Layout() {
       {/* 5. FLOATING CONTROLS ROW */}
       <AnimatePresence>
         {(location.pathname === '/home' || location.pathname === '/' || location.pathname === '/dashboard') && (
-          <>
+          <React.Fragment key="floating-controls-wrapper">
             {/* Desktop and Tablet: Floating WhatsApp Button at the bottom right side */}
-            <div className="hidden md:block fixed right-8 bottom-8 z-[110] pointer-events-auto">
+            <motion.div 
+              key="desktop-whatsapp-container"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.15 }}
+              className="hidden md:block fixed right-8 bottom-8 z-[110] pointer-events-auto"
+            >
               <WhatsAppCommunitySlider />
-            </div>
+            </motion.div>
 
             {/* Mobile Bottom Right: Floating WhatsApp Button comfortably above bottom navigation */}
-            <div className="md:hidden fixed right-4 bottom-[calc(88px+env(safe-area-inset-bottom,0px))] z-[450] pointer-events-auto">
+            <motion.div 
+              key="mobile-whatsapp-container"
+              id="whatsapp-floating-btn"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.15 }}
+              className="md:hidden fixed right-4 bottom-[calc(88px+env(safe-area-inset-bottom,0px))] z-[450] pointer-events-auto"
+            >
               <WhatsAppCommunitySlider />
-            </div>
+            </motion.div>
 
             {/* Choice Modal for Spin & Mine */}
             <AnimatePresence>
@@ -2747,7 +2787,7 @@ export default function Layout() {
                 </motion.div>
               )}
             </AnimatePresence>
-          </>
+          </React.Fragment>
         )}
       </AnimatePresence>
 

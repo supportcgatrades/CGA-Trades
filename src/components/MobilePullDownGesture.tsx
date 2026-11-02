@@ -44,17 +44,10 @@ export default function MobilePullDownGesture() {
     if (!isMobile()) return;
 
     const rootEl = document.getElementById('root');
-
-    const updateTransform = (yOffset: number, dragging: boolean) => {
-      if (!rootEl) return;
-      if (yOffset > 0) {
-        rootEl.style.transform = `translate3d(0, ${yOffset}px, 0)`;
-        rootEl.style.transition = dragging ? 'none' : 'transform 0.32s cubic-bezier(0.16, 1, 0.3, 1)';
-      } else {
-        rootEl.style.transform = 'translate3d(0, 0px, 0)';
-        rootEl.style.transition = dragging ? 'none' : 'transform 0.32s cubic-bezier(0.16, 1, 0.3, 1)';
-      }
-    };
+    if (rootEl) {
+      rootEl.style.transform = '';
+      rootEl.style.transition = '';
+    }
 
     const cancelAndCleanUp = () => {
       isAtTopRef.current = false;
@@ -71,8 +64,8 @@ export default function MobilePullDownGesture() {
       setIsRetracting(true);
 
       if (rootEl) {
-        rootEl.style.transition = 'transform 0.3s cubic-bezier(0.16, 1, 0.3, 1)';
-        rootEl.style.transform = 'translate3d(0, 0px, 0)';
+        rootEl.style.transform = '';
+        rootEl.style.transition = '';
       }
 
       if (retractTimerRef.current) clearTimeout(retractTimerRef.current);
@@ -85,9 +78,41 @@ export default function MobilePullDownGesture() {
       }, 320);
     };
 
+    const isInteractiveOrScrollable = (target: EventTarget | null): boolean => {
+      if (!target || !(target instanceof Element)) return false;
+      // Never hijack gestures if touching inside navigation, drawers, dialogs, buttons, or scroll containers
+      return Boolean(
+        target.closest('#sidebar-drawer') ||
+        target.closest('#sidebar-scroll-container') ||
+        target.closest('#mobile-bottom-nav') ||
+        target.closest('#whatsapp-floating-btn') ||
+        target.closest('[role="dialog"]') ||
+        target.closest('[data-scroll-container]') ||
+        target.closest('button') ||
+        target.closest('a') ||
+        target.closest('input') ||
+        target.closest('textarea') ||
+        target.closest('select') ||
+        target.closest('nav')
+      );
+    };
+
     const handleTouchStart = (e: TouchEvent) => {
       if (isSwitchingRef.current) return;
-      // Only initiate if scroll position is at the very top of the page
+
+      // Do not engage if document body is scroll-locked by a modal or sidebar
+      if (typeof document !== 'undefined' && document.body.style.overflow === 'hidden') {
+        isAtTopRef.current = false;
+        return;
+      }
+
+      // Do not engage if touch originated on interactive or scrollable elements
+      if (e.target && isInteractiveOrScrollable(e.target)) {
+        isAtTopRef.current = false;
+        return;
+      }
+
+      // Only initiate if scroll position is at the very top of the window
       if (window.scrollY <= 2) {
         if (retractTimerRef.current) {
           clearTimeout(retractTimerRef.current);
@@ -127,8 +152,8 @@ export default function MobilePullDownGesture() {
         return;
       }
 
-      // Only handle downward drag from top of page
-      if (rawDeltaY <= 0) {
+      // Only handle downward drag from top of page with a minimum 14px deadzone threshold
+      if (rawDeltaY <= 14) {
         if (isDraggingStateRef.current) {
           cancelAndCleanUp();
         }
@@ -151,14 +176,11 @@ export default function MobilePullDownGesture() {
       const threshold = target25vh * 0.85;
 
       // Soft rubber-band resistance curve
-      const normalized = Math.min(1.15, Math.pow(rawDeltaY / 150, 0.82));
+      const normalized = Math.min(1.15, Math.pow((rawDeltaY - 14) / 150, 0.82));
       const currentH = Math.min(target25vh * 1.05, normalized * target25vh);
 
       revealHeightRef.current = currentH;
       setRevealHeight(currentH);
-
-      // Physically translate root page downward with finger
-      updateTransform(currentH, true);
 
       // Check if threshold reached
       const reached = currentH >= threshold;
@@ -195,7 +217,7 @@ export default function MobilePullDownGesture() {
           return;
         }
 
-        // Mode switch threshold reached: smoothly return page and trigger mode switch
+        // Mode switch threshold reached: smoothly return overlay and trigger mode switch
         isSwitchingRef.current = true;
         isDraggingStateRef.current = false;
         setIsDragging(false);
@@ -204,8 +226,8 @@ export default function MobilePullDownGesture() {
         setIsRetracting(true);
 
         if (rootEl) {
-          rootEl.style.transition = 'transform 0.3s cubic-bezier(0.16, 1, 0.3, 1)';
-          rootEl.style.transform = 'translate3d(0, 0px, 0)';
+          rootEl.style.transform = '';
+          rootEl.style.transition = '';
         }
 
         if (retractTimerRef.current) clearTimeout(retractTimerRef.current);

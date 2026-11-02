@@ -45,7 +45,7 @@ export default function WhatsAppCommunitySlider() {
   };
 
   return (
-    <div className="relative select-none flex justify-end pointer-events-auto">
+    <div id="whatsapp-floating-btn" className="relative select-none flex justify-end pointer-events-auto">
       {/* Floating WhatsApp Button: Fixed, stable anchor hitbox with animated visual inner icon */}
       <a
         href={whatsappLink}
@@ -53,8 +53,9 @@ export default function WhatsAppCommunitySlider() {
         rel="noopener noreferrer"
         onClick={handleClick}
         onTouchStart={handleTouch}
+        onTouchMove={handleTouch}
         onTouchEnd={handleTouch}
-        className="w-12 h-12 md:w-14 md:h-14 min-w-[48px] min-h-[48px] flex items-center justify-center cursor-pointer relative filter drop-shadow-[0_6px_16px_rgba(37,211,102,0.45)] hover:drop-shadow-[0_8px_22px_rgba(37,211,102,0.6)] active:scale-95 transition-transform touch-manipulation z-10 pointer-events-auto"
+        className="w-12 h-12 md:w-14 md:h-14 min-w-[48px] min-h-[48px] flex items-center justify-center cursor-pointer relative filter drop-shadow-[0_6px_16px_rgba(37,211,102,0.45)] hover:drop-shadow-[0_8px_22px_rgba(37,211,102,0.6)] transition-all touch-manipulation z-10 pointer-events-auto"
         title="Contact WhatsApp Support"
         aria-label="Contact WhatsApp Support"
       >
