@@ -197,12 +197,6 @@ async function startServer() {
       bankName: "Opay",
       accountNumber: "6550002094",
       accountName: "TAVARI WAVE NETWORK/CGA TRADES"
-    },
-    {
-      id: "moniepoint",
-      bankName: "MONIEPOINT",
-      accountNumber: "9132530055",
-      accountName: "TAVARI WAVE NETWORK/CGA TRADES"
     }
   ];
 

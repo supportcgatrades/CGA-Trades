@@ -272,7 +272,7 @@ export default function Invest() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [transactionId, setTransactionId] = useState('');
   const [exchangeRate, setExchangeRate] = useState<number>(1400);
-  const [nigeriaBankIndex, setNigeriaBankIndex] = useState<number | null>(null);
+  const [nigeriaBankIndex, setNigeriaBankIndex] = useState<number | null>(0);
 
   // Country Selection & Card Payment Unavailability States
   const [selectedCountry, setSelectedCountry] = useState<string | null>(null);

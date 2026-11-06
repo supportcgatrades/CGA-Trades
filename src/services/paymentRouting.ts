@@ -5,7 +5,7 @@ import { COUNTRIES } from '../constants/countries';
  * Payment Routing & Region-Based Method Determination Service
  * 
  * Strict Scope:
- * - Nigeria: Bank Transfer (Opay & MONIEPOINT) + Crypto (Bitcoin, USDT TRC20)
+ * - Nigeria: Bank Transfer (Opay) + Crypto (Bitcoin, USDT TRC20)
  * - All other countries: Crypto only (Bitcoin, USDT TRC20)
  * - USDT ERC20 is strictly excluded from all payment flows.
  */
@@ -22,12 +22,6 @@ export const NIGERIA_BANK_ACCOUNTS: BankAccount[] = [
     id: 'opay',
     bankName: 'Opay',
     accountNumber: '6550002094',
-    accountName: 'TAVARI WAVE NETWORK/CGA TRADES'
-  },
-  {
-    id: 'moniepoint',
-    bankName: 'MONIEPOINT',
-    accountNumber: '9132530055',
     accountName: 'TAVARI WAVE NETWORK/CGA TRADES'
   }
 ];

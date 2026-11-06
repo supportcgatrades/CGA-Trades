@@ -59,7 +59,7 @@ import { TransactionTicket } from './TransactionTicket';
 
 // Nigerian banks list for the withdrawal selector
 const NIGERIAN_BANKS = [
-  "Opay", "Kuda Bank", "Moniepoint MFB", "PalmPay", "Carbon", "FairMoney Microfinance Bank", 
+  "Opay", "Kuda Bank", "PalmPay", "Carbon", "FairMoney Microfinance Bank", 
   "VFD Microfinance Bank (VBank)", "Sparkle Microfinance Bank", "Eyowo", "Access Bank", 
   "Zenith Bank", "Guaranty Trust Bank (GTBank)", "First Bank of Nigeria", 
   "United Bank for Africa (UBA)", "Fidelity Bank", "Wema Bank", "Ecobank Nigeria", 

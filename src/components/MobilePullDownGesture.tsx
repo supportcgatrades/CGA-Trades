@@ -16,6 +16,7 @@ export default function MobilePullDownGesture() {
   const [revealHeight, setRevealHeight] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
   const [isRetracting, setIsRetracting] = useState(false);
+  const [isSwitching, setIsSwitching] = useState(false);
   const [isThresholdReached, setIsThresholdReached] = useState(false);
 
   // Mutable refs to prevent unnecessary re-attaching of event listeners on every drag frame
@@ -59,6 +60,7 @@ export default function MobilePullDownGesture() {
       touchStartX.current = null;
 
       setIsDragging(false);
+      setIsSwitching(false);
       setRevealHeight(0);
       setIsThresholdReached(false);
       setIsRetracting(true);
@@ -217,37 +219,27 @@ export default function MobilePullDownGesture() {
           return;
         }
 
-        // Mode switch threshold reached: smoothly return overlay and trigger mode switch
+        // Mode switch threshold reached: allow rolling indicator to complete transition, then smoothly retract and switch
         isSwitchingRef.current = true;
-        isDraggingStateRef.current = false;
+        setIsSwitching(true);
         setIsDragging(false);
-        setRevealHeight(0);
-        setIsThresholdReached(false);
-        setIsRetracting(true);
-
-        if (rootEl) {
-          rootEl.style.transform = '';
-          rootEl.style.transition = '';
-        }
+        setIsThresholdReached(true);
 
         if (retractTimerRef.current) clearTimeout(retractTimerRef.current);
         retractTimerRef.current = setTimeout(() => {
-          setIsRetracting(false);
-          if (rootEl) {
-            rootEl.style.transform = '';
-            rootEl.style.transition = '';
-          }
-        }, 320);
+          setIsRetracting(true);
+          setRevealHeight(0);
+          setIsThresholdReached(false);
 
-        // Execute smooth mode switch
-        toggleModeRef.current(() => {
-          if (rootEl) {
-            rootEl.style.transform = '';
-            rootEl.style.transition = '';
-          }
-          navigateRef.current('/home');
-          isSwitchingRef.current = false;
-        });
+          setTimeout(() => {
+            setIsRetracting(false);
+            setIsSwitching(false);
+            toggleModeRef.current(() => {
+              navigateRef.current('/home');
+              isSwitchingRef.current = false;
+            });
+          }, 320);
+        }, 260);
       } else {
         // Did not reach threshold or user cancelled: clean up state and smoothly return
         cancelAndCleanUp();
@@ -274,15 +266,17 @@ export default function MobilePullDownGesture() {
 
   if (typeof document === 'undefined') return null;
 
-  // Visual state cleanup: do not render portal when not dragging and not retracting
-  if (!isDragging && !isRetracting) return null;
-  if (revealHeight <= 0 && !isRetracting) return null;
+  // Visual state cleanup: do not render portal when not dragging, retracting, or switching
+  if (!isDragging && !isRetracting && !isSwitching) return null;
+  if (revealHeight <= 0 && !isRetracting && !isSwitching) return null;
 
   const target25vh = typeof window !== 'undefined' ? Math.round(window.innerHeight * 0.25) : 180;
   const thresholdDist = target25vh * 0.85;
   const pullProgress = Math.min(1, Math.max(0, (revealHeight - 20) / Math.max(1, thresholdDist - 20)));
-  const translateY = (1 - pullProgress) * -4;
-  const scale = isThresholdReached ? 1.04 : 0.95 + pullProgress * 0.05;
+  const scale = (isThresholdReached || isSwitching) ? 1.04 : 0.95 + pullProgress * 0.05;
+
+  // Exact dynamic switch destination label based on current mode
+  const destinationLabel = isLite ? 'Switch to CGA Beta' : 'Switch to CGA Lite';
 
   return createPortal(
     <div
@@ -294,8 +288,8 @@ export default function MobilePullDownGesture() {
       )}
       style={{
         height: `${revealHeight}px`,
-        opacity: revealHeight > 0 ? 1 : 0,
-        display: revealHeight > 0 || isRetracting ? 'block' : 'none'
+        opacity: revealHeight > 0 || isSwitching ? 1 : 0,
+        display: revealHeight > 0 || isRetracting || isSwitching ? 'block' : 'none'
       }}
       aria-hidden="true"
     >
@@ -306,11 +300,11 @@ export default function MobilePullDownGesture() {
       />
 
       {/* 2. Large Smooth Half-Circle / Curved Arc Bottom Edge */}
-      <div className="relative w-full -mt-px overflow-hidden pointer-events-none">
+      <div className="absolute left-0 right-0 -bottom-3 sm:-bottom-4 w-full overflow-hidden pointer-events-none">
         <svg
           viewBox="0 0 100 24"
           preserveAspectRatio="none"
-          className="w-full h-10 sm:h-12 pointer-events-none"
+          className="w-full h-8 sm:h-10 pointer-events-none"
           style={{
             fill: 'var(--color-primary, #009e42)',
             filter: 'drop-shadow(0 6px 14px rgba(0, 0, 0, 0.25))',
@@ -318,34 +312,69 @@ export default function MobilePullDownGesture() {
         >
           <path d="M 0,0 L 0,2 C 25,24 75,24 100,2 L 100,0 Z" />
         </svg>
-
-        {/* 3. Destination Mode Pill (Clean minimal indicator) */}
-        {revealHeight > 18 && (
-          <div
-            className="absolute inset-x-0 bottom-2 sm:bottom-2.5 flex items-center justify-center pointer-events-none"
-            style={{
-              opacity: Math.min(1, pullProgress * 1.3),
-              transform: `translate3d(0, ${translateY}px, 0) scale(${scale})`,
-              transition: isDragging
-                ? 'none'
-                : 'opacity 0.28s cubic-bezier(0.16, 1, 0.3, 1), transform 0.28s cubic-bezier(0.16, 1, 0.3, 1)',
-            }}
-          >
-            <div
-              className={cn(
-                "px-4 py-1.5 rounded-full backdrop-blur-md transition-all duration-200 shadow-md",
-                isThresholdReached
-                  ? "bg-black/50 border border-white/50 text-white shadow-lg scale-105"
-                  : "bg-black/25 border border-white/20 text-white/95"
-              )}
-            >
-              <span className="text-[11px] sm:text-xs font-bold tracking-wider leading-none whitespace-nowrap select-none uppercase">
-                {isLite ? 'Switch to Beta' : 'Switch to Lite'}
-              </span>
-            </div>
-          </div>
-        )}
       </div>
+
+      {/* 3. Centered Destination Label & Elegant Rolling/Loading Indicator */}
+      {revealHeight > 20 && (
+        <div
+          className="absolute inset-0 flex items-center justify-center pointer-events-none px-4"
+          style={{
+            opacity: Math.min(1, pullProgress * 1.5),
+            transform: `scale(${scale})`,
+            transition: isDragging
+              ? 'none'
+              : 'opacity 0.25s cubic-bezier(0.16, 1, 0.3, 1), transform 0.25s cubic-bezier(0.16, 1, 0.3, 1)',
+          }}
+        >
+          <div
+            className={cn(
+              "inline-flex items-center gap-2.5 px-4 py-2 rounded-full backdrop-blur-md transition-all duration-200 select-none shadow-md",
+              (isThresholdReached || isSwitching)
+                ? "bg-black/35 border border-white/40 text-white shadow-lg scale-105"
+                : "bg-black/20 border border-white/20 text-white/95"
+            )}
+          >
+            {/* Small elegant rolling / loading ring indicator */}
+            <div className="w-4 h-4 flex items-center justify-center shrink-0">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                className={cn(
+                  "w-4 h-4 shrink-0",
+                  (isThresholdReached || isSwitching) ? "animate-spin" : ""
+                )}
+                style={{
+                  transform: (isThresholdReached || isSwitching) ? undefined : `rotate(${pullProgress * 360}deg)`,
+                  transition: isDragging ? 'none' : 'transform 0.2s ease-out'
+                }}
+              >
+                <circle
+                  cx="12"
+                  cy="12"
+                  r="8.5"
+                  stroke="rgba(255, 255, 255, 0.25)"
+                  strokeWidth="2.5"
+                />
+                <circle
+                  cx="12"
+                  cy="12"
+                  r="8.5"
+                  stroke="#ffffff"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                  strokeDasharray={2 * Math.PI * 8.5}
+                  strokeDashoffset={2 * Math.PI * 8.5 * (1 - Math.min(1, Math.max(0.18, pullProgress * 0.85)))}
+                />
+              </svg>
+            </div>
+
+            {/* Destination Mode Label */}
+            <span className="text-xs sm:text-[13px] font-semibold tracking-wide text-white leading-none whitespace-nowrap select-none font-sans">
+              {destinationLabel}
+            </span>
+          </div>
+        </div>
+      )}
     </div>,
     document.body
   );

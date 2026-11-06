@@ -105,7 +105,7 @@ export default function Fund() {
   const [depositCryptoType, setDepositCryptoType] = useState<'usdt' | 'btc'>('usdt');
   const [depositStep, setDepositStep] = useState<'input' | 'method' | 'payment'>('input');
   const [depositTxId, setDepositTxId] = useState('');
-  const [nigeriaBankIndex, setNigeriaBankIndex] = useState<number | null>(null);
+  const [nigeriaBankIndex, setNigeriaBankIndex] = useState<number | null>(0);
   const [exchangeRate, setExchangeRate] = useState<number>(1400);
   const [withdrawExchangeRate, setWithdrawExchangeRate] = useState<number>(1400);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -362,7 +362,7 @@ export default function Fund() {
           amount,
           method: depositMethodValue,
           crypto_type: depositMethodValue === 'crypto' ? depositCryptoType : null,
-          bank_name: depositMethodValue === 'bank' ? (NIGERIA_BANK_ACCOUNTS[0]?.bankName + ' / ' + NIGERIA_BANK_ACCOUNTS[1]?.bankName) : null,
+          bank_name: depositMethodValue === 'bank' ? (NIGERIA_BANK_ACCOUNTS[0]?.bankName || 'Opay') : null,
           reference: depositTxId,
           status: 'pending',
           created_at: new Date().toISOString()
@@ -671,7 +671,7 @@ export default function Fund() {
                   type="button"
                   onClick={() => {
                     setDepositMethod('bank');
-                    setNigeriaBankIndex(null);
+                    setNigeriaBankIndex(0);
                     setDepositStep('payment');
                   }}
                   className="w-full p-4 rounded-2xl border border-white/10 bg-white/5 hover:bg-white/10 hover:border-[#009e42]/50 transition-all flex items-center justify-between cursor-pointer group text-left"
@@ -788,15 +788,13 @@ export default function Fund() {
               onCopy={handleCopy}
               amountLabel="Amount to Fund:"
               submitButton={
-                nigeriaBankIndex !== null ? (
-                  <button 
-                    disabled={!depositTxId || isSubmitting}
-                    onClick={submitDeposit}
-                    className="w-full py-5 bg-[#009e42] hover:bg-[#02d147] disabled:opacity-20 text-white font-black uppercase tracking-[0.2em] text-[10px] rounded-2xl shadow-xl transition-all duration-300 relative z-10 cursor-pointer"
-                  >
-                    {isSubmitting ? 'Verifying Transfer...' : "I've paid"}
-                  </button>
-                ) : null
+                <button 
+                  disabled={!depositTxId || isSubmitting}
+                  onClick={submitDeposit}
+                  className="w-full py-5 bg-[#009e42] hover:bg-[#02d147] disabled:opacity-20 text-white font-black uppercase tracking-[0.2em] text-[10px] rounded-2xl shadow-xl transition-all duration-300 relative z-10 cursor-pointer"
+                >
+                  {isSubmitting ? 'Verifying Transfer...' : "I've paid"}
+                </button>
               }
             />
           </motion.div>

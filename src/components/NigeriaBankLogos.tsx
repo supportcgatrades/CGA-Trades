@@ -1,11 +1,10 @@
 import React from 'react';
 
 /**
- * Official OPay and Moniepoint Logo SVGs and Brand Identifiers
+ * Official OPay Logo SVG and Brand Identifier
  * 
  * Sourced directly from brand guidelines:
  * - OPay primary green/teal: #1DCF9F (with official logo mark)
- * - Moniepoint electric blue: #0357EE (with official squircle M mark)
  */
 
 export const OPayLogo: React.FC<{ className?: string; size?: number }> = ({ className = "h-5 w-auto", size }) => (
@@ -60,27 +59,5 @@ export const OPayIcon: React.FC<{ className?: string; size?: number }> = ({ clas
       fill="#1DCF9F"
     />
     <rect x="2.5" y="14" width="5.5" height="3.5" rx="0.5" fill="#1DCF9F" />
-  </svg>
-);
-
-export const MoniepointLogo: React.FC<{ className?: string; size?: number }> = ({ className = "h-5 w-5", size = 20 }) => (
-  <svg 
-    viewBox="0 0 154 153" 
-    fill="none" 
-    xmlns="http://www.w3.org/2000/svg"
-    className={className}
-    style={{ width: size, height: size }}
-    aria-label="Moniepoint"
-  >
-    {/* Moniepoint Official Blue Squircle Window */}
-    <path 
-      d="M77.27 152.98h-.55c-35.69-.09-59.61-7.49-64.57-12.06C6.9 136.26 0 112.13 0 76.49S6.9 16.72 12.14 12.06C17.11 7.49 41.12.09 76.72 0h.55c35.69.09 59.61 7.49 64.57 12.06 5.24 4.66 12.14 28.88 12.14 64.43s-6.9 59.77-12.14 64.43c-4.97 4.66-28.89 12.06-64.57 12.06Z" 
-      fill="#0357EE"
-    />
-    {/* Moniepoint White 'M' mark */}
-    <path 
-      d="M111.19 80.89l-2.87-34.55h-17.31s-13.19 26.6-14.35 30.22h-.18l-13.9-30.22h-17.4l-2.87 29.96-2.42 30.4h10.58c4.57 0 6.37-1.94 6.73-6.72 0 0 1.8-27.84 1.53-31.9h.18l.54 1.86c.72 2.47 10.58 26.24 10.58 26.24h13.01s9.87-23.42 11.12-28.1h.18l1.53 31.9c.36 4.77 2.24 6.72 6.73 6.72h10.58l-1.97-25.8h0Z" 
-      fill="#FFFFFF"
-    />
   </svg>
 );
