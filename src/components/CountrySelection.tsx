@@ -41,6 +41,7 @@ export default function CountrySelection() {
     try {
       localStorage.setItem('cga_signup_country', JSON.stringify(signupContext));
       sessionStorage.setItem('cga_signup_country', JSON.stringify(signupContext));
+      sessionStorage.setItem('cga_country_confirmed_session', 'true');
     } catch (e) {
       console.warn("Storage quota / error saving selected country:", e);
     }
@@ -80,7 +81,7 @@ export default function CountrySelection() {
       <main className="relative z-10 flex-1 max-w-3xl w-full mx-auto px-4 sm:px-6 pt-12 sm:pt-16 pb-20">
         {/* Minimal CGA Branding */}
         <div className="flex flex-col items-center text-center mb-8 sm:mb-10">
-          <div className="relative mb-5 group cursor-pointer" onClick={() => navigate('/welcome')}>
+          <div className="relative mb-5 group cursor-pointer" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>
             <img
               src="https://i.imgur.com/nRbbYnS.png"
               alt="CGA Logo"

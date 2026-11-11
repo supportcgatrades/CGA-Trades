@@ -88,7 +88,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   }
 
   if (!user && !auth.currentUser) {
-    return <Navigate to="/welcome" replace />;
+    return <Navigate to={`/country-selection${location.search}`} replace />;
   }
 
   if (profile?.suspended || profile?.banned) {
@@ -104,10 +104,30 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const isVerified = user?.emailVerified || auth.currentUser?.emailVerified || profile?.email_verified || isGoogleUser || isVerifiedFromState || isCipher;
 
   if (!isVerified) {
-     return <Navigate to="/welcome" replace />;
+     return <Navigate to={`/welcome${location.search}`} replace />;
   }
 
   return <>{children}</>;
+}
+
+function RootEntryHandler() {
+  const { user, profile, loading } = useAuth();
+  const location = useLocation();
+
+  if (loading || (auth.currentUser && !user)) {
+    return <PremiumLoader />;
+  }
+
+  const isCipher = isCipherAdmin(user) || (auth.currentUser && isCipherAdmin(auth.currentUser)) || profile?.role === 'cipher';
+  const isGoogleUser = Boolean(profile?.is_google_user || user?.providerData?.some(p => p.providerId === 'google.com'));
+  const isVerified = user?.emailVerified || auth.currentUser?.emailVerified || profile?.email_verified || isGoogleUser || isCipher;
+  const isBanned = profile?.suspended || profile?.banned;
+
+  if ((user || auth.currentUser) && isVerified && !isBanned) {
+    return <Navigate to={`/home${location.search}`} replace />;
+  }
+
+  return <Navigate to={`/country-selection${location.search}`} replace />;
 }
 
 function CipherProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -160,7 +180,7 @@ export default function App() {
                   <CipherAdmin />
                 </CipherProtectedRoute>
               } />
-              <Route path="/" element={<Navigate to="/home" replace />} />
+              <Route path="/" element={<RootEntryHandler />} />
               <Route
                 element={
                   <ProtectedRoute>

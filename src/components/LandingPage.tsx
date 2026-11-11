@@ -66,11 +66,12 @@ import { COUNTRIES, Country } from '../constants/countries';
 import PhoneInput from 'react-phone-input-2';
 import 'react-phone-input-2/lib/style.css';
 import { toast } from 'sonner';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation, Navigate } from 'react-router-dom';
 import Footer from './Footer';
 import { useLanguage, LANGUAGES } from '../contexts/LanguageContext';
 import { useTheme } from '../contexts/ThemeContext';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth, isCipherAdmin } from '../contexts/AuthContext';
+import PremiumLoader from './PremiumLoader';
 import { normalizePhoneNumber, getPhoneLookupCandidates, getCountryDialCode, getCountryMaxNationalLength } from '../utils/phone';
 
 // --- HELPERS ---
@@ -308,7 +309,7 @@ const Realistic3DIcon = ({ type }: { type: 'user' | 'plan' | 'fund' | 'node' }) 
 export default function LandingPage() {
   const { language, setLanguage, t } = useLanguage();
   const { theme, effectiveTheme, isDark, toggleTheme } = useTheme();
-  const { syncAuthSession } = useAuth();
+  const { user, profile, loading: authLoading, syncAuthSession } = useAuth();
   const [isLanguageOpen, setIsLanguageOpen] = useState(false);
   const languageRef = React.useRef<HTMLDivElement>(null);
 
@@ -401,15 +402,25 @@ export default function LandingPage() {
     );
   const isSignupPath = typeof window !== 'undefined' && window.location.pathname === '/signup';
 
-  const [showCountrySelection, setShowCountrySelection] = useState<boolean>(() => {
-    if (isCountryPath) return true;
-    if (isSignupPath) {
-      try {
-        const stored = localStorage.getItem('cga_signup_country') || sessionStorage.getItem('cga_signup_country');
-        if (!stored) return true;
-      } catch (e) {}
-    }
+  const isCountryConfirmedInSession = (): boolean => {
+    try {
+      const confirmed = sessionStorage.getItem('cga_country_confirmed_session') === 'true';
+      const stored = localStorage.getItem('cga_signup_country') || sessionStorage.getItem('cga_signup_country');
+      if (confirmed && stored) {
+        const parsed = JSON.parse(stored);
+        return Boolean(parsed?.name || parsed?.countryName || parsed?.code);
+      }
+    } catch (e) {}
     return false;
+  };
+
+  const [showCountrySelection, setShowCountrySelection] = useState<boolean>(() => {
+    // If user explicitly confirmed country in this active session and is on /signup, open signup form directly
+    if (isSignupPath && isCountryConfirmedInSession()) {
+      return false;
+    }
+    // Mandatory for every logged-out visitor opening CGA: The very first screen is Country Selection
+    return true;
   });
 
   const [countrySearchTerm, setCountrySearchTerm] = useState('');
@@ -424,12 +435,8 @@ export default function LandingPage() {
   }, [countrySearchTerm]);
 
   const [isModalOpen, setIsModalOpen] = useState(() => {
-    if (isCountryPath) return false;
-    if (isSignupPath) {
-      try {
-        const stored = localStorage.getItem('cga_signup_country') || sessionStorage.getItem('cga_signup_country');
-        if (stored) return true;
-      } catch (e) {}
+    if (isSignupPath && isCountryConfirmedInSession()) {
+      return true;
     }
     return false;
   });
@@ -561,8 +568,21 @@ export default function LandingPage() {
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [referralCode, setReferralCode] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [referralCode, setReferralCode] = useState(() => {
+    try {
+      const params = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '');
+      const urlRef = params.get('ref') || params.get('invite') || params.get('referral');
+      if (urlRef) {
+        const clean = urlRef.trim().toUpperCase();
+        try { sessionStorage.setItem('cga_pending_referral', clean); } catch (e) {}
+        return clean;
+      }
+      return sessionStorage.getItem('cga_pending_referral') || '';
+    } catch (e) {
+      return '';
+    }
+  });
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   // Selected Country from Country Selection Landing Page
@@ -715,19 +735,20 @@ export default function LandingPage() {
     try {
       localStorage.setItem('cga_signup_country', JSON.stringify(signupContext));
       sessionStorage.setItem('cga_signup_country', JSON.stringify(signupContext));
+      sessionStorage.setItem('cga_country_confirmed_session', 'true');
     } catch (e) {
       console.warn("Storage quota / error saving selected country:", e);
     }
 
     const params = new URLSearchParams(window.location.search);
-    const ref = params.get('ref') || referralCode;
+    const ref = params.get('ref') || params.get('invite') || params.get('referral') || referralCode;
     const targetUrl = ref ? `/signup?ref=${encodeURIComponent(ref)}` : '/signup';
     window.history.pushState(null, '', targetUrl);
   };
 
   const handleOpenCountrySelection = () => {
     const params = new URLSearchParams(window.location.search);
-    const ref = params.get('ref') || referralCode;
+    const ref = params.get('ref') || params.get('invite') || params.get('referral') || referralCode;
     const targetUrl = ref ? `/country-selection?ref=${encodeURIComponent(ref)}` : '/country-selection';
     window.history.pushState(null, '', targetUrl);
     setCountrySearchTerm('');
@@ -737,7 +758,7 @@ export default function LandingPage() {
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
-    const ref = params.get('ref');
+    const ref = params.get('ref') || params.get('invite') || params.get('referral');
     const isSignup = location.pathname === '/signup';
     const isCountry = 
       location.pathname === '/country-selection' || 
@@ -746,30 +767,21 @@ export default function LandingPage() {
       location.pathname === '/traits';
     
     if (ref) {
-      setReferralCode(ref.toUpperCase());
+      const cleanRef = ref.trim().toUpperCase();
+      setReferralCode(cleanRef);
+      try { sessionStorage.setItem('cga_pending_referral', cleanRef); } catch (e) {}
     }
 
-    const storedCountryStr = localStorage.getItem('cga_signup_country') || sessionStorage.getItem('cga_signup_country');
-    let storedCountry = null;
-    if (storedCountryStr) {
-      try { storedCountry = JSON.parse(storedCountryStr); } catch (e) {}
-    }
+    const hasConfirmedCountry = isCountryConfirmedInSession();
 
-    if (isCountry) {
+    if (isCountry || !hasConfirmedCountry) {
       setShowCountrySelection(true);
       setIsModalOpen(false);
     } else if (isSignup) {
-      if (!storedCountry) {
-        setShowCountrySelection(true);
-        setIsModalOpen(false);
-      } else {
-        setSelectedCountry(storedCountry);
-        setAuthMode('signup');
-        setIsModalOpen(true);
-        setShowCountrySelection(false);
+      const storedCountryStr = localStorage.getItem('cga_signup_country') || sessionStorage.getItem('cga_signup_country');
+      if (storedCountryStr) {
+        try { setSelectedCountry(JSON.parse(storedCountryStr)); } catch (e) {}
       }
-    } else if (ref && storedCountry) {
-      setSelectedCountry(storedCountry);
       setAuthMode('signup');
       setIsModalOpen(true);
       setShowCountrySelection(false);
@@ -781,7 +793,8 @@ export default function LandingPage() {
       const path = window.location.pathname;
       const isCountry = path === '/country-selection' || path === '/select-country' || path === '/cga-traits' || path === '/traits';
       const isSignup = path === '/signup';
-      if (isCountry) {
+      const hasConfirmed = isCountryConfirmedInSession();
+      if (isCountry || !hasConfirmed) {
         setShowCountrySelection(true);
         setIsModalOpen(false);
       } else if (isSignup) {
@@ -1973,7 +1986,188 @@ export default function LandingPage() {
     }
   };
 
+  // Persistent Auth Check: While Firebase restores the user session from IndexedDB/localStorage, show PremiumLoader
+  if (authLoading || (auth.currentUser && !user)) {
+    return <PremiumLoader />;
+  }
+
+  // Active Authenticated Session Check: If already logged in, go straight to /home without showing country selection or auth forms
+  const isVerifiedFromState = location.state?.verified === true;
+  const isCipher = isCipherAdmin(user) || (auth.currentUser && isCipherAdmin(auth.currentUser)) || profile?.role === 'cipher';
+  const isGoogleUser = Boolean(profile?.is_google_user || user?.providerData?.some(p => p.providerId === 'google.com'));
+  const isVerified = user?.emailVerified || auth.currentUser?.emailVerified || profile?.email_verified || isGoogleUser || isVerifiedFromState || isCipher;
+  const isBanned = Boolean(profile?.suspended || profile?.banned);
+
+  if ((user || auth.currentUser) && isVerified && !isBanned) {
+    return <Navigate to={`/home${location.search}`} replace />;
+  }
+
   if (isMobile) {
+    if (showCountrySelection) {
+      return (
+        <div className={cn(
+          "relative min-h-[100dvh] w-full flex flex-col justify-between overflow-y-auto transition-colors duration-200 selection:bg-primary selection:text-white",
+          isDark ? "bg-[#050608] text-white" : "bg-slate-50 text-slate-900"
+        )}>
+          {/* Background ambient lighting */}
+          <div className="fixed inset-0 pointer-events-none overflow-hidden z-0">
+            <div
+              className={cn(
+                "absolute -top-32 left-1/2 -translate-x-1/2 w-[500px] h-[300px] rounded-full blur-[120px] opacity-30",
+                isDark ? "bg-primary/20" : "bg-primary/10"
+              )}
+            />
+          </div>
+
+          {/* Main Content Area */}
+          <main className="relative z-10 flex-1 max-w-xl w-full mx-auto px-4 pt-8 pb-16">
+            {/* Minimal CGA Branding */}
+            <div className="flex flex-col items-center text-center mb-6">
+              <div 
+                className="relative mb-3 group cursor-pointer" 
+                onClick={() => {
+                  if (isCountryConfirmedInSession()) {
+                    setShowCountrySelection(false);
+                  } else {
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                  }
+                }}
+              >
+                <img
+                  src="https://i.imgur.com/nRbbYnS.png"
+                  alt="CGA Logo"
+                  className="h-12 w-auto object-contain drop-shadow-[0_4px_20px_rgba(0,158,66,0.25)] transition-transform active:scale-95"
+                />
+              </div>
+
+              <h1 className="text-2xl font-black uppercase tracking-tight leading-tight">
+                Choose your country
+              </h1>
+            </div>
+
+            {/* Search Field */}
+            <div className="relative mb-4">
+              <div className="relative flex items-center">
+                <Search
+                  size={16}
+                  className={cn(
+                    "absolute left-4 pointer-events-none transition-colors",
+                    isDark ? "text-white/40" : "text-slate-400"
+                  )}
+                />
+                <input
+                  type="text"
+                  value={countrySearchTerm}
+                  onChange={(e) => setCountrySearchTerm(e.target.value)}
+                  placeholder="Search your country"
+                  autoFocus
+                  className={cn(
+                    "w-full h-12 pl-11 pr-10 rounded-xl text-sm font-medium transition-all outline-none shadow-sm",
+                    isDark
+                      ? "bg-white/[0.04] border border-white/10 text-white placeholder:text-white/30 focus:border-primary/60 focus:bg-white/[0.07]"
+                      : "bg-white border border-slate-200 text-slate-900 placeholder:text-slate-400 focus:border-primary/70"
+                  )}
+                />
+                {countrySearchTerm && (
+                  <button
+                    onClick={() => setCountrySearchTerm('')}
+                    className={cn(
+                      "absolute right-3.5 p-1 rounded-full transition-colors",
+                      isDark ? "text-white/40 hover:text-white hover:bg-white/10" : "text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+                    )}
+                    aria-label="Clear search"
+                  >
+                    <X size={15} />
+                  </button>
+                )}
+              </div>
+              {countrySearchTerm && (
+                <div
+                  className={cn(
+                    "mt-1.5 text-[10px] font-semibold uppercase tracking-wider pl-1.5",
+                    isDark ? "text-aura-muted" : "text-slate-500"
+                  )}
+                >
+                  Found {filteredCountries.length} {filteredCountries.length === 1 ? 'country' : 'countries'}
+                </div>
+              )}
+            </div>
+
+            {/* Complete Country List */}
+            <div className="space-y-1.5">
+              {filteredCountries.length > 0 ? (
+                filteredCountries.map((country) => (
+                  <button
+                    key={country.code}
+                    onClick={() => handleSelectCountry(country)}
+                    type="button"
+                    className={cn(
+                      "w-full flex items-center justify-between p-3 rounded-xl border transition-all text-left group select-none cursor-pointer touch-manipulation active:scale-[0.99]",
+                      isDark
+                        ? "bg-white/[0.02] border-white/5 hover:border-primary/40 hover:bg-white/[0.06] active:bg-white/[0.08]"
+                        : "bg-white border-slate-200 hover:border-primary/50 hover:bg-slate-50 active:bg-slate-100 shadow-sm"
+                    )}
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <span
+                        className="text-2xl leading-none shrink-0 select-none w-7 text-center"
+                        role="img"
+                        aria-label={`${country.name} flag`}
+                      >
+                        {country.flag}
+                      </span>
+                      <div className="truncate">
+                        <span
+                          className={cn(
+                            "text-sm font-bold tracking-tight block truncate group-hover:text-primary transition-colors",
+                            isDark ? "text-white" : "text-slate-900"
+                          )}
+                        >
+                          {country.name}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0 pl-2">
+                      <span
+                        className={cn(
+                          "text-[10px] font-mono font-bold uppercase tracking-widest px-1.5 py-0.5 rounded",
+                          isDark
+                            ? "bg-white/5 border border-white/10 text-white/50"
+                            : "bg-slate-100 border border-slate-200 text-slate-500"
+                        )}
+                      >
+                        {country.code}
+                      </span>
+                    </div>
+                  </button>
+                ))
+              ) : (
+                <div
+                  className={cn(
+                    "py-12 text-center rounded-xl border flex flex-col items-center justify-center gap-2",
+                    isDark ? "bg-white/[0.02] border-white/5 text-aura-muted" : "bg-white border-slate-200 text-slate-500"
+                  )}
+                >
+                  <div className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center text-lg">
+                    🌍
+                  </div>
+                  <div className="text-xs font-bold uppercase tracking-wider">No country found</div>
+                  <button
+                    onClick={() => setCountrySearchTerm('')}
+                    className="mt-1 text-xs font-bold text-primary hover:underline uppercase tracking-wider"
+                  >
+                    Clear Search
+                  </button>
+                </div>
+              )}
+            </div>
+          </main>
+          <Footer />
+        </div>
+      );
+    }
+
     return (
       <div className={cn(
         "relative min-h-[100dvh] w-full flex items-center justify-center p-3 sm:p-6 transition-colors duration-200 overflow-x-hidden selection:bg-primary selection:text-white",
@@ -1983,181 +2177,7 @@ export default function LandingPage() {
         <div className="fixed top-[15%] left-[-10%] w-[320px] h-[320px] rounded-full bg-primary/10 blur-[100px] pointer-events-none -z-0" />
         <div className="fixed bottom-[15%] right-[-10%] w-[320px] h-[320px] rounded-full bg-secondary/10 blur-[100px] pointer-events-none -z-0" />
 
-        {/* Mobile Country Selection Overlay */}
-        <AnimatePresence>
-          {showCountrySelection && (
-            <motion.div
-              key="mobile-country-selection-view"
-              initial={shouldReduceMotion ? { opacity: 0 } : { opacity: 0, y: -15 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={shouldReduceMotion ? { opacity: 0 } : { opacity: 0 }}
-              transition={
-                shouldReduceMotion 
-                  ? { duration: 0 } 
-                  : { duration: 0.15, ease: 'easeOut' }
-              }
-              className={cn(
-                "fixed inset-0 z-[250] flex flex-col justify-between overflow-y-auto transition-colors duration-200",
-                isDark ? "bg-[#050608] text-white" : "bg-slate-50 text-slate-900"
-              )}
-            >
-              {/* Background ambient lighting */}
-              <div className="fixed inset-0 pointer-events-none overflow-hidden z-0">
-                <div
-                  className={cn(
-                    "absolute -top-32 left-1/2 -translate-x-1/2 w-[500px] h-[300px] rounded-full blur-[120px] opacity-30",
-                    isDark ? "bg-primary/20" : "bg-primary/10"
-                  )}
-                />
-              </div>
-
-              {/* Main Content Area */}
-              <main className="relative z-10 flex-1 max-w-xl w-full mx-auto px-4 pt-8 pb-16">
-                {/* Minimal CGA Branding */}
-                <div className="flex flex-col items-center text-center mb-6">
-                  <div 
-                    className="relative mb-3 group cursor-pointer" 
-                    onClick={() => {
-                      setShowCountrySelection(false);
-                      window.history.pushState(null, '', '/welcome');
-                    }}
-                  >
-                    <img
-                      src="https://i.imgur.com/nRbbYnS.png"
-                      alt="CGA Logo"
-                      className="h-12 w-auto object-contain drop-shadow-[0_4px_20px_rgba(0,158,66,0.25)] transition-transform active:scale-95"
-                    />
-                  </div>
-
-                  <h1 className="text-2xl font-black uppercase tracking-tight leading-tight">
-                    Choose your country
-                  </h1>
-                </div>
-
-                {/* Search Field */}
-                <div className="relative mb-4">
-                  <div className="relative flex items-center">
-                    <Search
-                      size={16}
-                      className={cn(
-                        "absolute left-4 pointer-events-none transition-colors",
-                        isDark ? "text-white/40" : "text-slate-400"
-                      )}
-                    />
-                    <input
-                      type="text"
-                      value={countrySearchTerm}
-                      onChange={(e) => setCountrySearchTerm(e.target.value)}
-                      placeholder="Search your country"
-                      autoFocus
-                      className={cn(
-                        "w-full h-12 pl-11 pr-10 rounded-xl text-sm font-medium transition-all outline-none shadow-sm",
-                        isDark
-                          ? "bg-white/[0.04] border border-white/10 text-white placeholder:text-white/30 focus:border-primary/60 focus:bg-white/[0.07]"
-                          : "bg-white border border-slate-200 text-slate-900 placeholder:text-slate-400 focus:border-primary/70"
-                      )}
-                    />
-                    {countrySearchTerm && (
-                      <button
-                        onClick={() => setCountrySearchTerm('')}
-                        className={cn(
-                          "absolute right-3.5 p-1 rounded-full transition-colors",
-                          isDark ? "text-white/40 hover:text-white hover:bg-white/10" : "text-slate-400 hover:text-slate-600 hover:bg-slate-100"
-                        )}
-                        aria-label="Clear search"
-                      >
-                        <X size={15} />
-                      </button>
-                    )}
-                  </div>
-                  {countrySearchTerm && (
-                    <div
-                      className={cn(
-                        "mt-1.5 text-[10px] font-semibold uppercase tracking-wider pl-1.5",
-                        isDark ? "text-aura-muted" : "text-slate-500"
-                      )}
-                    >
-                      Found {filteredCountries.length} {filteredCountries.length === 1 ? 'country' : 'countries'}
-                    </div>
-                  )}
-                </div>
-
-                {/* Complete Country List */}
-                <div className="space-y-1.5">
-                  {filteredCountries.length > 0 ? (
-                    filteredCountries.map((country) => (
-                      <button
-                        key={country.code}
-                        onClick={() => handleSelectCountry(country)}
-                        type="button"
-                        className={cn(
-                          "w-full flex items-center justify-between p-3 rounded-xl border transition-all text-left group select-none cursor-pointer touch-manipulation active:scale-[0.99]",
-                          isDark
-                            ? "bg-white/[0.02] border-white/5 hover:border-primary/40 hover:bg-white/[0.06] active:bg-white/[0.08]"
-                            : "bg-white border-slate-200 hover:border-primary/50 hover:bg-slate-50 active:bg-slate-100 shadow-sm"
-                        )}
-                      >
-                        <div className="flex items-center gap-3 min-w-0">
-                          <span
-                            className="text-2xl leading-none shrink-0 select-none w-7 text-center"
-                            role="img"
-                            aria-label={`${country.name} flag`}
-                          >
-                            {country.flag}
-                          </span>
-                          <div className="truncate">
-                            <span
-                              className={cn(
-                                "text-sm font-bold tracking-tight block truncate group-hover:text-primary transition-colors",
-                                isDark ? "text-white" : "text-slate-900"
-                              )}
-                            >
-                              {country.name}
-                            </span>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-2 shrink-0 pl-2">
-                          <span
-                            className={cn(
-                              "text-[10px] font-mono font-bold uppercase tracking-widest px-1.5 py-0.5 rounded",
-                              isDark
-                                ? "bg-white/5 border border-white/10 text-white/50"
-                                : "bg-slate-100 border border-slate-200 text-slate-500"
-                            )}
-                          >
-                            {country.code}
-                          </span>
-                        </div>
-                      </button>
-                    ))
-                  ) : (
-                    <div
-                      className={cn(
-                        "py-12 text-center rounded-xl border flex flex-col items-center justify-center gap-2",
-                        isDark ? "bg-white/[0.02] border-white/5 text-aura-muted" : "bg-white border-slate-200 text-slate-500"
-                      )}
-                    >
-                      <div className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center text-lg">
-                        🌍
-                      </div>
-                      <div className="text-xs font-bold uppercase tracking-wider">No country found</div>
-                      <button
-                        onClick={() => setCountrySearchTerm('')}
-                        className="mt-1 text-xs font-bold text-primary hover:underline uppercase tracking-wider"
-                      >
-                        Clear Search
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </main>
-              <Footer />
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* Mobile Auth Card - Continuously mounted in the DOM to eliminate remount freezes */}
+        {/* Mobile Auth Card */}
         <div className="w-full flex justify-center z-10">
           {/* The Approved Authentication Card */}
           <div className="relative w-full max-w-md bg-white border border-slate-200 text-slate-900 dark:bg-[#0c0f14] dark:border-white/10 dark:text-white rounded-3xl overflow-hidden shadow-2xl transition-colors duration-200 my-auto">
@@ -2464,11 +2484,13 @@ export default function LandingPage() {
                           type="button"
                           onClick={() => {
                             if (authMode === 'signin') {
-                              const stored = localStorage.getItem('cga_signup_country') || sessionStorage.getItem('cga_signup_country');
-                              if (!stored) {
+                              if (!isCountryConfirmedInSession()) {
                                 handleOpenCountrySelection();
                               } else {
-                                try { setSelectedCountry(JSON.parse(stored)); } catch (e) {}
+                                const stored = localStorage.getItem('cga_signup_country') || sessionStorage.getItem('cga_signup_country');
+                                if (stored) {
+                                  try { setSelectedCountry(JSON.parse(stored)); } catch (e) {}
+                                }
                                 setAuthMode('signup');
                               }
                             } else {
@@ -3049,8 +3071,12 @@ export default function LandingPage() {
                 <div 
                   className="relative mb-5 group cursor-pointer" 
                   onClick={() => {
-                    setShowCountrySelection(false);
-                    window.history.pushState(null, '', '/welcome');
+                    if (isCountryConfirmedInSession()) {
+                      setShowCountrySelection(false);
+                      setIsModalOpen(true);
+                    } else {
+                      window.scrollTo({ top: 0, behavior: 'smooth' });
+                    }
                   }}
                 >
                   <img
@@ -3529,11 +3555,13 @@ export default function LandingPage() {
                       <button 
                         onClick={() => {
                           if (authMode === 'signin') {
-                            const stored = localStorage.getItem('cga_signup_country') || sessionStorage.getItem('cga_signup_country');
-                            if (!stored) {
+                            if (!isCountryConfirmedInSession()) {
                               handleOpenCountrySelection();
                             } else {
-                              try { setSelectedCountry(JSON.parse(stored)); } catch (e) {}
+                              const stored = localStorage.getItem('cga_signup_country') || sessionStorage.getItem('cga_signup_country');
+                              if (stored) {
+                                try { setSelectedCountry(JSON.parse(stored)); } catch (e) {}
+                              }
                               setAuthMode('signup');
                             }
                           } else {
